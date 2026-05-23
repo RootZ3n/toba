@@ -1,0 +1,15 @@
+node_modules/
+dist/
+state/
+.claude/
+.agents/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.local
+.DS_Store
+*.log
+.vitest-cache/
+coverage/

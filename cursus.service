@@ -1,0 +1,39 @@
+[Unit]
+Description=Cursus — Career Change Command Center (Standalone)
+Documentation=https://github.com/anthropics/cursus
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=zen
+WorkingDirectory=/mnt/ai/cursus
+ExecStart=/usr/bin/pnpm start
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+# Cursus is standalone. No Squidley required.
+Environment=NODE_ENV=production
+Environment=CURSUS_PORT=18815
+Environment=CURSUS_HOST=127.0.0.1
+Environment=CURSUS_DB_PATH=/mnt/ai/cursus/state/cursus.db
+# Provider defaults: unconfigured. Set in .env to enable Dux chat.
+Environment=CURSUS_PROVIDER=none
+Environment=CURSUS_MODEL=none
+Environment=CURSUS_LOCAL_ONLY=false
+EnvironmentFile=-/mnt/ai/cursus/.env
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=/mnt/ai/cursus/state
+
+[Install]
+WantedBy=multi-user.target
