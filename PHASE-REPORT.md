@@ -223,7 +223,7 @@ curl http://127.0.0.1:18815/status
 # 5. Onboarding flow
 curl -X POST http://127.0.0.1:18815/cursus/onboarding \
   -H 'Content-Type: application/json' \
-  -d '{"name":"Jeff","preferred_titles":"AI Engineer","privacy_mode":"local-only"}'
+  -d '{"name":"Tester","preferred_titles":"AI Engineer","privacy_mode":"local-only"}'
 
 curl -X POST http://127.0.0.1:18815/cursus/onboarding/complete
 

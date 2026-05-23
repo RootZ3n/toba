@@ -47,6 +47,28 @@ const CURSUS_AUTOMATION_MODE = process.env["CURSUS_AUTOMATION_MODE"] ?? "approva
 // integrations only and is NOT required.
 const CURSUS_BRIDGE_URL = process.env["CURSUS_BRIDGE_URL"] ?? process.env["SQUIDLEY_CURSUS_URL"] ?? "";
 
+function listToJson(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return JSON.stringify(value.map(v => String(v).trim()).filter(Boolean));
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "[]";
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) return JSON.stringify(parsed.map(v => String(v).trim()).filter(Boolean));
+    } catch { /* comma/newline format below */ }
+    return JSON.stringify(trimmed.split(/[,;\n]+/).map(v => v.trim()).filter(Boolean));
+  }
+  return undefined;
+}
+
+function numberOrNull(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function getProviderMeta() {
   const s = getProviderStatus();
   return {
@@ -297,6 +319,10 @@ ${authNote}
     return reply.send({ ok: true, onboarding: updated });
   });
 
+  server.post("/cursus/onboarding/clear", async (_req, reply) => {
+    return reply.send({ ok: true, onboarding: v2.clearOnboarding() });
+  });
+
   server.post("/cursus/onboarding/complete", async (_req, reply) => {
     const state = v2.getOnboarding();
     if (!state.name) {
@@ -311,7 +337,7 @@ ${authNote}
     if (state.name) profilePatch.name = state.name;
     if (state.preferred_titles) {
       const existingTitle = v1.getProfile()?.title ?? "";
-      if (!existingTitle || existingTitle === "Jeffrey Miller") {
+      if (!existingTitle) {
         profilePatch.title = state.preferred_titles.split(/[,;]+/)[0]!.trim();
       }
     }
@@ -326,7 +352,7 @@ ${authNote}
 
     v2.createReceipt({
       action: "onboarding_complete",
-      result_summary: `Onboarding completed for "${state.name}". Privacy: ${state.privacy_mode}. Titles: ${state.preferred_titles ?? "none"}.`,
+      result_summary: `Onboarding completed. Privacy: ${state.privacy_mode}.`,
     });
 
     return reply.send({ ok: true, onboarding: completed });
@@ -376,9 +402,56 @@ ${authNote}
 
   server.get("/cursus/profile", async (_req, reply) => reply.send({ ok: true, profile: v1.getProfile() }));
 
-  server.patch<{ Body: Partial<{ name: string; title: string; summary: string; location: string }> }>("/cursus/profile", async (req, reply) => {
-    const updated = v1.updateProfile(req.body);
-    return reply.send({ ok: true, profile: updated });
+  server.patch<{ Body: Record<string, unknown> }>("/cursus/profile", async (req, reply) => {
+    const body = req.body ?? {};
+    const profilePatch: Record<string, unknown> = {};
+    const profileFields = [
+      "name", "email", "phone", "title", "summary", "location",
+      "work_preference", "preferred_locations", "salary_min", "salary_max",
+      "years_experience", "certifications", "skills", "links_json",
+      "privacy_mode", "provider_preference",
+    ];
+    for (const key of profileFields) {
+      if (body[key] === undefined) continue;
+      profilePatch[key] = ["salary_min", "salary_max", "years_experience"].includes(key)
+        ? numberOrNull(body[key])
+        : body[key];
+    }
+    const targetRoles = listToJson(body["target_roles"]);
+    if (targetRoles !== undefined) profilePatch["target_roles"] = targetRoles;
+    for (const key of ["dream_job", "gap_analysis", "constraints_json", "cover_employer", "cover_role", "cover_industry", "nda_active"]) {
+      if (body[key] !== undefined) profilePatch[key] = body[key];
+    }
+    if (Object.keys(profilePatch).length > 0) v2.updateProfileV2(profilePatch);
+    const updated = v1.updateProfile(profilePatch);
+
+    const onboardingPatch: Record<string, unknown> = {};
+    if (body["name"] !== undefined) onboardingPatch["name"] = body["name"] || null;
+    if (body["target_roles"] !== undefined) {
+      const roles = listToJson(body["target_roles"]);
+      onboardingPatch["preferred_titles"] = roles ? (JSON.parse(roles) as string[]).join(", ") : null;
+    }
+    for (const key of ["work_preference", "preferred_locations", "salary_min", "salary_max", "years_experience", "certifications", "privacy_mode"]) {
+      if (body[key] !== undefined) {
+        onboardingPatch[key] = ["salary_min", "salary_max", "years_experience"].includes(key)
+          ? numberOrNull(body[key])
+          : body[key] || null;
+      }
+    }
+    if (Object.keys(onboardingPatch).length > 0) v2.updateOnboarding(onboardingPatch);
+    return reply.send({ ok: true, profile: updated, profile_v2: v2.getProfileV2(), onboarding: v2.getOnboarding() });
+  });
+
+  server.post("/cursus/profile/clear", async (_req, reply) => {
+    const profile = v1.clearProfile();
+    const onboarding = v2.clearOnboarding();
+    return reply.send({ ok: true, profile, onboarding });
+  });
+
+  server.delete("/cursus/profile", async (_req, reply) => {
+    const profile = v1.clearProfile();
+    const onboarding = v2.clearOnboarding();
+    return reply.send({ ok: true, profile, onboarding });
   });
 
   server.get("/cursus/experience", async (_req, reply) => reply.send({ ok: true, experience: v1.listExperience() }));
@@ -446,6 +519,10 @@ ${authNote}
     return reply.send({ ok: true, campaigns: v2.listCampaigns() });
   });
 
+  server.delete("/cursus/campaigns", async (_req, reply) => {
+    return reply.send({ ok: true, cleared: v2.clearCampaigns() });
+  });
+
   server.post<{ Body: { name: string; target_role: string } }>("/cursus/campaigns", async (req, reply) => {
     const { name, target_role } = req.body ?? {};
     if (!name || !target_role) return reply.status(400).send({ ok: false, error: "name and target_role required" });
@@ -479,6 +556,10 @@ ${authNote}
     return reply.send({ ok: true, applications: v2.listApplications(cid || undefined) });
   });
 
+  server.delete("/cursus/applications", async (_req, reply) => {
+    return reply.send({ ok: true, cleared: v2.clearApplications() });
+  });
+
   server.post<{ Body: { campaign_id: string; company: string; role: string; url?: string; salary_range?: string; match_score?: number; notes?: string; source?: string; location?: string; remote?: string } }>("/cursus/applications", async (req, reply) => {
     const { campaign_id, company, role } = req.body ?? {};
     if (!campaign_id || !company || !role) return reply.status(400).send({ ok: false, error: "campaign_id, company, and role required" });
@@ -506,6 +587,12 @@ ${authNote}
   // Resumes
   server.get("/cursus/resumes", async (_req, reply) => {
     return reply.send({ ok: true, resumes: v2.listResumes() });
+  });
+
+  server.delete("/cursus/resumes", async (_req, reply) => {
+    const cleared = v2.clearResumes();
+    v2.updateOnboarding({ resume_uploaded: false, resume_id: null });
+    return reply.send({ ok: true, cleared });
   });
 
   server.post<{ Body: { base_resume: string; profile_version?: number; tailored_for?: string } }>("/cursus/resumes/generate", async (req, reply) => {
@@ -896,6 +983,10 @@ ${authNote}
     return reply.send({ ok: true, tasks: v2.listAutomationTasks(status || undefined), mode: CURSUS_AUTOMATION_MODE });
   });
 
+  server.delete("/cursus/automation", async (_req, reply) => {
+    return reply.send({ ok: true, cleared: v2.clearAutomation() });
+  });
+
   server.post<{ Body: { kind: string; title: string; detail?: string; campaign_id?: string; application_id?: string; schedule?: string } }>("/cursus/automation", async (req, reply) => {
     const { kind, title } = req.body ?? {};
     if (!kind || !title) return reply.status(400).send({ ok: false, error: "kind and title required" });
@@ -967,6 +1058,23 @@ ${authNote}
     const limit = parseInt(q.limit ?? "50", 10);
     const action = q.action as ReceiptAction | undefined;
     return reply.send({ ok: true, receipts: v2.listReceipts(limit, action) });
+  });
+
+  server.delete("/cursus/receipts", async (_req, reply) => {
+    return reply.send({ ok: true, cleared: v2.clearReceipts() });
+  });
+
+  server.post<{ Body: { keep_provider_config?: boolean; dry_run?: boolean } }>("/cursus/reset", async (req, reply) => {
+    if (req.body?.dry_run) {
+      return reply.send({
+        ok: true,
+        dry_run: true,
+        would_clear: ["profile", "onboarding", "resumes", "campaigns", "applications", "receipts", "automation", "dux sessions"],
+      });
+    }
+    const profile = v1.clearProfile();
+    const cleared = v2.resetPersonalData({ keepProviderConfig: !!req.body?.keep_provider_config });
+    return reply.send({ ok: true, cleared, profile, onboarding: v2.getOnboarding() });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -1,9 +1,10 @@
 import Fastify from "fastify";
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdirSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { CursusV1DB, CursusV2DB, CURSUS_SCHEMA_VERSION } from "./db.js";
 import { registerRoutes } from "./routes.js";
 
@@ -136,10 +137,10 @@ describe("Cursus standalone", () => {
     await app.inject({
       method: "POST", url: "/cursus/onboarding",
       payload: {
-        name: "Jeff Miller",
+        name: "Test Person",
         preferred_titles: "AI Engineer, MLOps",
         work_preference: "remote",
-        preferred_locations: "Oklahoma City, Remote",
+        preferred_locations: "Remote City, Remote",
         salary_min: 80000,
         salary_max: 130000,
         years_experience: 20,
@@ -150,7 +151,7 @@ describe("Cursus standalone", () => {
 
     const res = await app.inject({ method: "GET", url: "/cursus/onboarding" });
     const ob = res.json().onboarding;
-    expect(ob.name).toBe("Jeff Miller");
+    expect(ob.name).toBe("Test Person");
     expect(ob.preferred_titles).toBe("AI Engineer, MLOps");
     expect(ob.work_preference).toBe("remote");
     expect(ob.salary_min).toBe(80000);
@@ -173,7 +174,7 @@ describe("Cursus standalone", () => {
 
     await app.inject({
       method: "POST", url: "/cursus/onboarding",
-      payload: { name: "Jeff Miller", preferred_titles: "AI Engineer, DevOps", preferred_locations: "OKC" },
+      payload: { name: "Test Person", preferred_titles: "AI Engineer, DevOps", preferred_locations: "OKC" },
     });
 
     const res = await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
@@ -181,11 +182,10 @@ describe("Cursus standalone", () => {
     expect(res.json().onboarding.completed).toBeTruthy();
     expect(res.json().onboarding.completed_at).toBeDefined();
 
-    // Check profile synced — name and location sync, but title is preserved
-    // because the seed profile already has a meaningful title
+    // Check profile synced from blank default state.
     const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
-    expect(profile.json().profile.name).toBe("Jeff Miller");
-    expect(profile.json().profile.title).toBe("AI Systems Engineer / Field Service Technician");
+    expect(profile.json().profile.name).toBe("Test Person");
+    expect(profile.json().profile.title).toBe("AI Engineer");
     expect(profile.json().profile.location).toBe("OKC");
 
     // Check target_roles synced
@@ -197,7 +197,8 @@ describe("Cursus standalone", () => {
     // Check receipt
     const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=onboarding_complete" });
     expect(receipts.json().receipts.length).toBe(1);
-    expect(receipts.json().receipts[0].result_summary).toContain("Jeff Miller");
+    expect(receipts.json().receipts[0].result_summary).not.toContain("Test Person");
+    expect(receipts.json().receipts[0].result_summary).toContain("Privacy:");
   });
 
   it("onboarding does not overwrite existing professional title", async () => {
@@ -209,7 +210,7 @@ describe("Cursus standalone", () => {
 
     await app.inject({
       method: "POST", url: "/cursus/onboarding",
-      payload: { name: "Jeff Miller", preferred_titles: "Help Desk, Desktop Support", preferred_locations: "OKC" },
+      payload: { name: "Test Person", preferred_titles: "Help Desk, Desktop Support", preferred_locations: "OKC" },
     });
     await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
 
@@ -217,7 +218,7 @@ describe("Cursus standalone", () => {
     // Title must NOT be overwritten to "Help Desk"
     expect(profile.json().profile.title).toBe("AI Systems Engineer / Field Service Technician");
     // But name and location should still sync
-    expect(profile.json().profile.name).toBe("Jeff Miller");
+    expect(profile.json().profile.name).toBe("Test Person");
     expect(profile.json().profile.location).toBe("OKC");
   });
 
@@ -231,7 +232,7 @@ describe("Cursus standalone", () => {
 
     await app.inject({
       method: "POST", url: "/cursus/onboarding",
-      payload: { name: "Jeff Miller", preferred_titles: "Help Desk, Desktop Support" },
+      payload: { name: "Test Person", preferred_titles: "Help Desk, Desktop Support" },
     });
     await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
 
@@ -245,7 +246,7 @@ describe("Cursus standalone", () => {
 
     const res = await app.inject({
       method: "POST", url: "/cursus/onboarding/resume",
-      payload: { text: "Jeff Miller, AI Engineer. SSN: 123-45-6789. 20 years experience in systems." },
+      payload: { text: "Test Person, AI Engineer. SSN: 123-45-6789. 20 years experience in systems." },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().velum.reviewed).toBe(true);
@@ -483,9 +484,9 @@ describe("Cursus standalone", () => {
     await app.inject({
       method: "POST", url: "/cursus/onboarding",
       payload: {
-        name: "Jeff",
+        name: "Tester",
         work_preference: "remote",
-        preferred_locations: "Oklahoma City",
+        preferred_locations: "Remote City",
         salary_min: 90000,
         salary_max: 140000,
         certifications: "CompTIA A+",
@@ -604,12 +605,108 @@ describe("Cursus standalone", () => {
   // PHASE 5: Operational (existing tests carry forward)
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("V1 profile seeded and readable", async () => {
+  it("fresh DB starts blank with no personal campaign data", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/profile" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().profile.name).toBe("Jeffrey Miller");
+    const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json().profile.name).toBeNull();
+    expect(profile.json().profile.title).toBeNull();
+    expect(profile.json().profile.summary).toBeNull();
+
+    const v2p = await app.inject({ method: "GET", url: "/cursus/profile/v2" });
+    expect(JSON.parse(v2p.json().profile.target_roles)).toEqual([]);
+    expect(v2p.json().profile.cover_employer).toBeNull();
+    expect(v2p.json().profile.nda_active).toBe(0);
+
+    const campaigns = await app.inject({ method: "GET", url: "/cursus/campaigns" });
+    const apps = await app.inject({ method: "GET", url: "/cursus/applications" });
+    const resumes = await app.inject({ method: "GET", url: "/cursus/resumes" });
+    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts" });
+    expect(campaigns.json().campaigns).toEqual([]);
+    expect(apps.json().applications).toEqual([]);
+    expect(resumes.json().resumes).toEqual([]);
+    expect(receipts.json().receipts).toEqual([]);
+  });
+
+  it("profile fields and target_roles can be edited and cleared", async () => {
+    const { app } = create();
+    await app.ready();
+    const saved = await app.inject({
+      method: "PATCH", url: "/cursus/profile",
+      payload: {
+        name: "Test Person",
+        email: "person@example.test",
+        phone: "555-010-2222",
+        location: "Remote City",
+        title: "Platform Engineer",
+        summary: "Release-safe test profile.",
+        target_roles: "Platform Engineer, SRE",
+        work_preference: "remote",
+        preferred_locations: "Remote",
+        salary_min: 100000,
+        salary_max: 140000,
+        years_experience: 7,
+        certifications: "Test Certification",
+        skills: "TypeScript, SQLite",
+        links_json: "https://example.test/portfolio",
+        privacy_mode: "local-preferred",
+        provider_preference: "local",
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().profile.email).toBe("person@example.test");
+    expect(saved.json().profile.skills).toContain("TypeScript");
+    expect(JSON.parse(saved.json().profile_v2.target_roles)).toEqual(["Platform Engineer", "SRE"]);
+    expect(saved.json().onboarding.preferred_titles).toBe("Platform Engineer, SRE");
+
+    const cleared = await app.inject({ method: "POST", url: "/cursus/profile/clear" });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().profile.name).toBeNull();
+    expect(cleared.json().profile.email).toBeNull();
+    expect(cleared.json().onboarding.completed).toBe(0);
+    const v2p = await app.inject({ method: "GET", url: "/cursus/profile/v2" });
+    expect(JSON.parse(v2p.json().profile.target_roles)).toEqual([]);
+  });
+
+  it("factory reset script leaves a populated DB blank without touching schema", () => {
+    const dir = join(tmpdir(), `cursus-reset-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const dbPath = join(dir, "cursus.db");
+    const v1 = new CursusV1DB(dbPath);
+    const v2 = new CursusV2DB(dbPath);
+    v1.updateProfile({ name: "Test Person", title: "Platform Engineer" });
+    v2.createCampaign("Release Test", "Engineer");
+    v2.createResume("Test resume body with enough words to store.", undefined, "Engineer");
+    v2.createReceipt({ action: "campaign_create", result_summary: "test receipt" });
+    v1.close(); v2.close();
+
+    execFileSync("bash", [join(import.meta.dirname, "..", "scripts", "cursus-reset.sh"), "--personal-data-only", "--db", dbPath], {
+      cwd: join(import.meta.dirname, ".."),
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
+
+    const checkV1 = new CursusV1DB(dbPath);
+    const checkV2 = new CursusV2DB(dbPath);
+    expect(checkV1.getProfile().name).toBeNull();
+    expect(checkV2.listCampaigns()).toEqual([]);
+    expect(checkV2.listResumes()).toEqual([]);
+    expect(checkV2.listReceipts()).toEqual([]);
+    expect(checkV2.getSchemaVersion()).toBe(CURSUS_SCHEMA_VERSION);
+    checkV1.close(); checkV2.close();
+    try { rmSync(dir, { recursive: true }); } catch {}
+  });
+
+  it("release privacy audit fails on personal strings and passes a clean scan path", () => {
+    const dir = join(tmpdir(), `cursus-audit-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const script = join(import.meta.dirname, "..", "scripts", "audit-release-privacy.sh");
+    writeFileSync(join(dir, "clean.txt"), "generic release-safe fixture\n");
+    expect(() => execFileSync("bash", [script, dir], { cwd: join(import.meta.dirname, ".."), stdio: "pipe" })).not.toThrow();
+    writeFileSync(join(dir, "bad.txt"), `${"Jeffrey"} ${"Miller"}\n`);
+    expect(() => execFileSync("bash", [script, dir], { cwd: join(import.meta.dirname, ".."), stdio: "pipe" })).toThrow();
+    try { rmSync(dir, { recursive: true }); } catch {}
   });
 
   it("V2 dashboard returns valid structure", async () => {
@@ -895,7 +992,7 @@ describe("Cursus standalone", () => {
         target_titles: ["Help Desk Technician", "Desktop Support"],
         keywords: ["tier 1", "tier 2"],
         negative_keywords: ["senior", "director"],
-        locations: ["Oklahoma City", "Remote"],
+        locations: ["Remote City", "Remote"],
         remote_preference: "remote",
         priority: "primary",
       },
@@ -967,7 +1064,7 @@ describe("Cursus standalone", () => {
         fit_analysis: "Strong fit based on portfolio",
         gap_strategy: "Need to brush up on React",
         compensation_notes: "$90k-120k range",
-        resume_plan: "Emphasize Squidley V2 architecture",
+        resume_plan: "Emphasize reference platform architecture",
         interview_prep: "Prepare STAR stories about system design",
         legitimacy_grade: "A",
         overall_grade: "B",
@@ -1001,7 +1098,7 @@ describe("Cursus standalone", () => {
     const created = await app.inject({
       method: "POST", url: "/cursus/stories",
       payload: {
-        title: "Squidley V2 Architecture",
+        title: "Reference Platform Architecture",
         format: "star_reflection",
         situation: "Needed a production-grade AI orchestration platform",
         task: "Design and build a 22-module system in under a week",
@@ -1014,7 +1111,7 @@ describe("Cursus standalone", () => {
     });
     expect(created.statusCode).toBe(201);
     const story = created.json().story;
-    expect(story.title).toBe("Squidley V2 Architecture");
+    expect(story.title).toBe("Reference Platform Architecture");
     expect(story.format).toBe("star_reflection");
     expect(JSON.parse(story.tags)).toContain("architecture");
 
@@ -1177,7 +1274,7 @@ describe("Cursus standalone", () => {
 
   it("GET /cursus/provider returns full status without leaking api key", async () => {
     const { applyConfigPatch } = await import("./provider.js");
-    applyConfigPatch({ provider: "openai", model: "gpt-test", api_key: "sk-secret-xyz", base_url: "https://api.example.com" });
+    applyConfigPatch({ provider: "openai", model: "gpt-test", api_key: "test-openai-secret", base_url: "https://api.example.com" });
     const { app } = create();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/cursus/provider" });
@@ -1190,7 +1287,7 @@ describe("Cursus standalone", () => {
     expect(body.provider.api_key_set).toBe(true);
     expect(Array.isArray(body.provider.available_providers)).toBe(true);
     const raw = JSON.stringify(body);
-    expect(raw).not.toContain("sk-secret-xyz");
+    expect(raw).not.toContain("test-openai-secret");
     // restore
     applyConfigPatch({ provider: "none", model: "none", api_key: "", base_url: "" });
   });
@@ -1221,7 +1318,7 @@ describe("Cursus standalone", () => {
     await app.ready();
     const res = await app.inject({
       method: "PATCH", url: "/cursus/provider",
-      payload: { provider: "openai", model: "gpt-test", api_key: "sk-test" },
+      payload: { provider: "openai", model: "gpt-test", api_key: "test-openai-key" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe("local_only_violation");
@@ -1231,7 +1328,7 @@ describe("Cursus standalone", () => {
   it("local-only mode at chat-time rejects cloud calls", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     // Configure cloud first, then flip local_only without going through PATCH guard.
-    applyConfigPatch({ provider: "openai", model: "gpt-test", api_key: "sk-test", base_url: "https://api.example.com" });
+    applyConfigPatch({ provider: "openai", model: "gpt-test", api_key: "test-openai-key", base_url: "https://api.example.com" });
     // Direct config mutation via PATCH would fail. Use a synthetic env-style reset:
     process.env["CURSUS_LOCAL_ONLY"] = "true";
     const { resetConfigFromEnv } = await import("./provider.js");
@@ -1252,7 +1349,7 @@ describe("Cursus standalone", () => {
     await app.ready();
     const res = await app.inject({
       method: "POST", url: "/cursus/dux/chat",
-      payload: { message: "my email is jeff@example.com — what should I focus on?" },
+      payload: { message: "my email is person@example.test — what should I focus on?" },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -1264,7 +1361,7 @@ describe("Cursus standalone", () => {
     expect(body.velum.redacted).toBe(true);
     expect(body.velum.fields_redacted).toContain("email");
     expect(body.reply).toContain("[EMAIL-REDACTED]");
-    expect(body.reply).not.toContain("jeff@example.com");
+    expect(body.reply).not.toContain("person@example.test");
 
     const velumReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=velum_review" });
     expect(velumReceipts.json().receipts.length).toBeGreaterThan(0);
@@ -1412,7 +1509,7 @@ describe("Cursus standalone", () => {
         provider: "openrouter",
         model: "deepseek/deepseek-v4-pro",
         base_url: "https://openrouter.ai/api/v1",
-        api_key: "sk-or-strategist-secret",
+        api_key: "test-openrouter-strategist-secret",
         temperature: 0.4,
         max_tokens: 800,
       },
@@ -1424,12 +1521,12 @@ describe("Cursus standalone", () => {
     expect(body.agent.base_url).toBe("https://openrouter.ai/api/v1");
     expect(body.agent.api_key).toBeUndefined();
     expect(body.agent.api_key_set).toBe(true);
-    expect(JSON.stringify(body)).not.toContain("sk-or-strategist-secret");
+    expect(JSON.stringify(body)).not.toContain("test-openrouter-strategist-secret");
 
     // Verify persistence via GET
     const reread = await app.inject({ method: "GET", url: "/cursus/dux/agents/strategist" });
     expect(reread.json().agent.provider).toBe("openrouter");
-    expect(JSON.stringify(reread.json())).not.toContain("sk-or-strategist-secret");
+    expect(JSON.stringify(reread.json())).not.toContain("test-openrouter-strategist-secret");
   });
 
   it("agent A uses model X while agent B uses model Y, in parallel", async () => {
@@ -1475,7 +1572,7 @@ describe("Cursus standalone", () => {
 
   it("agent with cloud_allowed=false on a cloud default falls back or blocks", async () => {
     const { applyConfigPatch } = await import("./provider.js");
-    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-test", base_url: "https://openrouter.ai/api/v1" });
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-key", base_url: "https://openrouter.ai/api/v1" });
     const { app } = create();
     await app.ready();
     // Block cloud for resume-reviewer with no fallback
@@ -1515,12 +1612,12 @@ describe("Cursus standalone", () => {
     await app.ready();
     const res = await app.inject({
       method: "POST", url: "/cursus/dux/agents/outreach-drafter/chat",
-      payload: { message: "Draft an email mentioning jeff@example.com and 555-123-4567" },
+      payload: { message: "Draft an email mentioning person@example.test and 555-123-4567" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().reply).toContain("[EMAIL-REDACTED]");
     expect(res.json().reply).toContain("[PHONE-REDACTED]");
-    expect(res.json().reply).not.toContain("jeff@example.com");
+    expect(res.json().reply).not.toContain("person@example.test");
     expect(res.json().reply).not.toContain("555-123-4567");
     applyConfigPatch({ provider: "none", model: "none" });
   });
@@ -1532,14 +1629,14 @@ describe("Cursus standalone", () => {
   it("OpenRouter request shape: URL is /chat/completions on /api/v1 base, with Bearer + X-Title", async () => {
     const { buildRequestPreview } = await import("./provider.js");
     const preview = buildRequestPreview(
-      { provider: "openrouter", model: "deepseek/deepseek-v4-pro", base_url: "https://openrouter.ai/api/v1", api_key: "sk-or-XYZ", local_only: false },
+      { provider: "openrouter", model: "deepseek/deepseek-v4-pro", base_url: "https://openrouter.ai/api/v1", api_key: "test-openrouter-preview-key", local_only: false },
       { messages: [{ role: "user", content: "hi" }] },
     );
     expect(preview.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(preview.headers["authorization"]).toMatch(/^Bearer \[REDACTED:\d+\]$/);
     expect(preview.headers["X-Title"]).toBeDefined();
     expect(preview.body["model"]).toBe("deepseek/deepseek-v4-pro");
-    expect(JSON.stringify(preview)).not.toContain("sk-or-XYZ");
+    expect(JSON.stringify(preview)).not.toContain("test-openrouter-preview-key");
   });
 
   it("OpenRouter respects HTTP-Referer when CURSUS_OPENROUTER_REFERER is set", async () => {
@@ -1572,7 +1669,7 @@ describe("Cursus standalone", () => {
 
   it("OpenRouter status surfaces openrouter_configured boolean without leaking key", async () => {
     const { applyConfigPatch } = await import("./provider.js");
-    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-XXXXXXXXXX", base_url: "https://openrouter.ai/api/v1" });
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-status-key", base_url: "https://openrouter.ai/api/v1" });
     const { app } = create();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/status" });
@@ -1580,7 +1677,7 @@ describe("Cursus standalone", () => {
     expect(body.provider).toBe("openrouter");
     expect(body.model).toBe("deepseek/deepseek-v4-pro");
     expect(body.openrouter_configured).toBe(true);
-    expect(JSON.stringify(body)).not.toContain("sk-or-XXXXXXXXXX");
+    expect(JSON.stringify(body)).not.toContain("test-openrouter-status-key");
     applyConfigPatch({ provider: "none", model: "none", api_key: "" });
   });
 
@@ -1591,7 +1688,7 @@ describe("Cursus standalone", () => {
     await app.ready();
     const res = await app.inject({
       method: "PATCH", url: "/cursus/provider",
-      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-X" },
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-short" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe("local_only_violation");
@@ -1603,7 +1700,7 @@ describe("Cursus standalone", () => {
     await app.ready();
     const res = await app.inject({
       method: "PATCH", url: "/cursus/dux/agents/strategist",
-      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-test" },
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-key" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().agent.provider).toBe("openrouter");
@@ -1668,7 +1765,7 @@ describe("Cursus standalone", () => {
 
   it("/status surfaces network exposure + Dux agent count + OpenRouter posture", async () => {
     const { applyConfigPatch } = await import("./provider.js");
-    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-status-test", base_url: "https://openrouter.ai/api/v1" });
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-status-secret", base_url: "https://openrouter.ai/api/v1" });
     const { app } = create();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/status" });
@@ -1679,7 +1776,7 @@ describe("Cursus standalone", () => {
     expect(body.dux_agents.total).toBeGreaterThan(0);
     expect(Array.isArray(body.dux_agents.agents)).toBe(true);
     expect(body.openrouter_configured).toBe(true);
-    expect(JSON.stringify(body)).not.toContain("sk-or-status-test");
+    expect(JSON.stringify(body)).not.toContain("test-openrouter-status-secret");
     applyConfigPatch({ provider: "none", model: "none", api_key: "" });
   });
 
@@ -1762,14 +1859,14 @@ describe("Cursus standalone", () => {
     // Configure a per-agent API key via PATCH (typical case)
     await app.inject({
       method: "PATCH", url: "/cursus/dux/agents/strategist",
-      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-SECRET-LEAK-TEST" },
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-leak-secret" },
     });
     // The SPA shell HTML must not embed any key (it doesn't fetch keys; the API doesn't return them).
     const shell = await app.inject({ method: "GET", url: "/" });
-    expect(shell.body).not.toContain("sk-or-SECRET-LEAK-TEST");
+    expect(shell.body).not.toContain("test-openrouter-leak-secret");
     // The agents endpoint sanitizes — double-check
     const agents = await app.inject({ method: "GET", url: "/cursus/dux/agents" });
-    expect(agents.body).not.toContain("sk-or-SECRET-LEAK-TEST");
+    expect(agents.body).not.toContain("test-openrouter-leak-secret");
     expect(agents.body).toContain("api_key_set");
   });
 

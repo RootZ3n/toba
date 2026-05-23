@@ -33,7 +33,7 @@
 - No endpoint merged them for Job Scout or other consumers.
 
 ### D. Job Scout Campaign Awareness
-- Agent JSON had hardcoded "AI/ML/systems engineering, cybersecurity, DevOps" and "Oklahoma or remote".
+- Agent JSON had hardcoded "AI/ML/systems engineering, cybersecurity, DevOps" and "remote or hybrid locations".
 - No standalone endpoint to derive search context from campaign + profile.
 - No persistence path for found jobs into cursus_applications.
 

@@ -259,8 +259,24 @@ export interface CampaignAnalytics {
 
 // V1 types
 export interface CursusProfile {
-  id: number; name: string; title: string; summary: string;
-  location: string; updated_at: string;
+  id: number;
+  name: string | null;
+  email?: string | null;
+  phone?: string | null;
+  title: string | null;
+  summary: string | null;
+  location: string | null;
+  work_preference?: string | null;
+  preferred_locations?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  years_experience?: number | null;
+  certifications?: string | null;
+  skills?: string | null;
+  links_json?: string | null;
+  privacy_mode?: PrivacyMode | null;
+  provider_preference?: string | null;
+  updated_at: string;
 }
 
 export interface CursusExperience {
@@ -373,30 +389,74 @@ export class CursusV1DB {
 
     const now = new Date().toISOString();
     this.db.prepare("INSERT INTO cursus_profile (id, name, title, summary, location, updated_at) VALUES (1, ?, ?, ?, ?, ?)").run(
-      "Jeffrey Miller",
-      "AI Systems Engineer / Field Service Technician",
-      "Self-directed technical professional with 20+ years in systems troubleshooting and electronics repair, now architecting production-grade AI infrastructure. Built Squidley V2 — a 22-module local-first AI orchestration platform — in 6 days. Pursuing CompTIA A+ and Security+.",
-      "Moore, Oklahoma",
+      null,
+      null,
+      null,
+      null,
       now,
     );
   }
 
   getProfile(): CursusProfile {
+    const row = this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as CursusProfile | undefined;
+    if (row) return row;
+    this.seedIfEmpty();
     return this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as CursusProfile;
   }
 
   updateProfile(patch: Partial<Omit<CursusProfile, "id">>): CursusProfile {
+    const allowed = [
+      "name", "email", "phone", "title", "summary", "location",
+      "work_preference", "preferred_locations", "salary_min", "salary_max",
+      "years_experience", "certifications", "skills", "links_json",
+      "privacy_mode", "provider_preference",
+    ];
     const fields: string[] = [];
     const vals: Record<string, unknown> = {};
-    if (patch.name !== undefined)     { fields.push("name = @name");       vals.name = patch.name; }
-    if (patch.title !== undefined)    { fields.push("title = @title");     vals.title = patch.title; }
-    if (patch.summary !== undefined)  { fields.push("summary = @summary"); vals.summary = patch.summary; }
-    if (patch.location !== undefined) { fields.push("location = @location"); vals.location = patch.location; }
+    for (const [key, value] of Object.entries(patch)) {
+      if (!allowed.includes(key) || value === undefined) continue;
+      fields.push(`${key} = @${key}`);
+      vals[key] = value === "" ? null : value;
+    }
     if (fields.length > 0) {
       fields.push("updated_at = @updated_at");
       vals.updated_at = new Date().toISOString();
       this.db.prepare(`UPDATE cursus_profile SET ${fields.join(", ")} WHERE id = 1`).run(vals);
     }
+    return this.getProfile();
+  }
+
+  clearProfile(): CursusProfile {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE cursus_profile SET
+        name = NULL,
+        email = NULL,
+        phone = NULL,
+        title = NULL,
+        summary = NULL,
+        location = NULL,
+        work_preference = NULL,
+        preferred_locations = NULL,
+        salary_min = NULL,
+        salary_max = NULL,
+        years_experience = NULL,
+        certifications = NULL,
+        skills = NULL,
+        links_json = NULL,
+        privacy_mode = 'local-only',
+        provider_preference = NULL,
+        cover_employer = NULL,
+        cover_role = NULL,
+        cover_industry = NULL,
+        nda_active = 0,
+        dream_job = NULL,
+        gap_analysis = '[]',
+        target_roles = '[]',
+        constraints_json = '{}',
+        updated_at = ?
+      WHERE id = 1
+    `).run(now);
     return this.getProfile();
   }
 
@@ -474,12 +534,12 @@ export class CursusV1DB {
     const skills = this.listSkills();
 
     const lines: string[] = [];
-    lines.push(p.name.toUpperCase());
-    lines.push(p.title);
-    lines.push(p.location);
+    lines.push((p.name || "NAME NOT SET").toUpperCase());
+    lines.push(p.title || "Professional title not set");
+    lines.push(p.location || "Location not set");
     lines.push("");
     lines.push("SUMMARY");
-    lines.push(p.summary);
+    lines.push(p.summary || "Profile summary not set.");
     lines.push("");
 
     lines.push("EXPERIENCE");
@@ -523,10 +583,10 @@ export class CursusV1DB {
     const projects = this.listProjects().filter(pr => pr.portfolio_worthy);
     const lines: string[] = [];
 
-    lines.push(`# ${p.name}`);
-    lines.push(`### ${p.title}`);
+    lines.push(`# ${p.name || "Name not set"}`);
+    lines.push(`### ${p.title || "Professional title not set"}`);
     lines.push("");
-    lines.push(p.summary);
+    lines.push(p.summary || "Profile summary not set.");
     lines.push("");
     lines.push("---");
     lines.push("");
@@ -613,10 +673,22 @@ export class CursusV2DB {
 
   private migrate(): void {
     const profileCols = [
-      "ALTER TABLE cursus_profile ADD COLUMN cover_employer TEXT DEFAULT 'Confidential — Plant Tissue Culture Laboratory'",
-      "ALTER TABLE cursus_profile ADD COLUMN cover_role TEXT DEFAULT 'Field Service Technician'",
-      "ALTER TABLE cursus_profile ADD COLUMN cover_industry TEXT DEFAULT 'Biotechnology/Agricultural Research'",
-      "ALTER TABLE cursus_profile ADD COLUMN nda_active INTEGER DEFAULT 1",
+      "ALTER TABLE cursus_profile ADD COLUMN email TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN phone TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN work_preference TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN preferred_locations TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN salary_min INTEGER",
+      "ALTER TABLE cursus_profile ADD COLUMN salary_max INTEGER",
+      "ALTER TABLE cursus_profile ADD COLUMN years_experience INTEGER",
+      "ALTER TABLE cursus_profile ADD COLUMN certifications TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN skills TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN links_json TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN privacy_mode TEXT DEFAULT 'local-only'",
+      "ALTER TABLE cursus_profile ADD COLUMN provider_preference TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN cover_employer TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN cover_role TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN cover_industry TEXT",
+      "ALTER TABLE cursus_profile ADD COLUMN nda_active INTEGER DEFAULT 0",
       "ALTER TABLE cursus_profile ADD COLUMN dream_job TEXT",
       "ALTER TABLE cursus_profile ADD COLUMN gap_analysis TEXT DEFAULT '[]'",
       "ALTER TABLE cursus_profile ADD COLUMN target_roles TEXT DEFAULT '[]'",
@@ -901,6 +973,29 @@ export class CursusV2DB {
     return this.getOnboarding();
   }
 
+  clearOnboarding(): OnboardingState {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE cursus_onboarding SET
+        completed = 0,
+        completed_at = NULL,
+        name = NULL,
+        preferred_titles = NULL,
+        work_preference = NULL,
+        preferred_locations = NULL,
+        salary_min = NULL,
+        salary_max = NULL,
+        years_experience = NULL,
+        certifications = NULL,
+        resume_uploaded = 0,
+        resume_id = NULL,
+        privacy_mode = 'local-only',
+        updated_at = ?
+      WHERE id = 1
+    `).run(now);
+    return this.getOnboarding();
+  }
+
   completeOnboarding(): OnboardingState {
     const now = new Date().toISOString();
     this.db.prepare("UPDATE cursus_onboarding SET completed = 1, completed_at = ?, updated_at = ? WHERE id = 1").run(now, now);
@@ -914,11 +1009,17 @@ export class CursusV2DB {
   }
 
   updateProfileV2(patch: Record<string, unknown>): void {
-    const allowed = ["dream_job", "gap_analysis", "target_roles", "constraints_json", "cover_employer", "cover_role", "cover_industry", "nda_active"];
+    const allowed = [
+      "email", "phone", "work_preference", "preferred_locations",
+      "salary_min", "salary_max", "years_experience", "certifications",
+      "skills", "links_json", "privacy_mode", "provider_preference",
+      "dream_job", "gap_analysis", "target_roles", "constraints_json",
+      "cover_employer", "cover_role", "cover_industry", "nda_active",
+    ];
     const fields: string[] = [];
     const values: unknown[] = [];
     for (const [k, v] of Object.entries(patch)) {
-      if (allowed.includes(k)) { fields.push(`${k} = ?`); values.push(v); }
+      if (allowed.includes(k)) { fields.push(`${k} = ?`); values.push(v === "" ? null : v); }
     }
     if (fields.length === 0) return;
     values.push(new Date().toISOString());
@@ -1432,6 +1533,73 @@ export class CursusV2DB {
       return this.db.prepare("SELECT * FROM cursus_receipts WHERE dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(duxAgentId, limit) as Receipt[];
     }
     return this.db.prepare("SELECT * FROM cursus_receipts ORDER BY timestamp DESC LIMIT ?").all(limit) as Receipt[];
+  }
+
+  clearResumes(): number {
+    const result = this.db.prepare("DELETE FROM cursus_resumes").run();
+    return result.changes;
+  }
+
+  clearApplications(): number {
+    const tables = ["cursus_job_evaluations", "cursus_outreach", "cursus_applications"];
+    let changes = 0;
+    for (const table of tables) changes += this.db.prepare(`DELETE FROM ${table}`).run().changes;
+    return changes;
+  }
+
+  clearCampaigns(): number {
+    const tables = ["cursus_search_lanes", "cursus_job_evaluations", "cursus_outreach", "cursus_applications", "cursus_campaigns"];
+    let changes = 0;
+    for (const table of tables) changes += this.db.prepare(`DELETE FROM ${table}`).run().changes;
+    return changes;
+  }
+
+  clearReceipts(): number {
+    return this.db.prepare("DELETE FROM cursus_receipts").run().changes;
+  }
+
+  clearAutomation(): number {
+    return this.db.prepare("DELETE FROM cursus_automation").run().changes;
+  }
+
+  clearDuxSessions(): number {
+    return this.db.prepare("DELETE FROM cursus_dux_sessions").run().changes;
+  }
+
+  clearInterviewStories(): number {
+    return this.db.prepare("DELETE FROM cursus_interview_stories").run().changes;
+  }
+
+  clearDuxProviderConfig(): number {
+    const now = new Date().toISOString();
+    return this.db.prepare(`
+      UPDATE cursus_dux_agents SET
+        provider = NULL,
+        model = NULL,
+        base_url = NULL,
+        api_key = NULL,
+        local_only = NULL,
+        cloud_allowed = NULL,
+        temperature = NULL,
+        max_tokens = NULL,
+        fallback_provider = NULL,
+        fallback_model = NULL,
+        updated_at = ?
+    `).run(now).changes;
+  }
+
+  resetPersonalData(opts: { keepProviderConfig?: boolean } = {}): Record<string, number> {
+    const summary: Record<string, number> = {};
+    summary.resumes = this.clearResumes();
+    summary.campaigns_and_pipeline = this.clearCampaigns();
+    summary.receipts = this.clearReceipts();
+    summary.automation = this.clearAutomation();
+    summary.dux_sessions = this.clearDuxSessions();
+    summary.interview_stories = this.clearInterviewStories();
+    this.clearOnboarding();
+    summary.onboarding = 1;
+    if (!opts.keepProviderConfig) summary.dux_provider_config = this.clearDuxProviderConfig();
+    return summary;
   }
 
   // ── Velum (local review/redaction) ────────────────────────────────────────

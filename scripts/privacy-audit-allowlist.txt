@@ -1,0 +1,15 @@
+# Regex allowlist for fake/test-only strings.
+# Keep this narrow. Real operator data, provider keys, bearer tokens, and resume content must not be allowlisted.
+example\.com
+example\.test
+acme\.com
+beta\.com
+mailto:
+https://github\.com/
+https://www\.linkedin\.com/
+OPENROUTER_API_KEY_HERE
+\.env\.bak\.[0-9-]+
+cursus_auth_token
+555-[0-9-]+
+405-555-9999
+4111 1111 1111 1111

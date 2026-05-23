@@ -326,30 +326,60 @@ async function renderProfile(root) {
     api("/cursus/resumes").catch(() => null),
   ]);
   const p = profile.status === "fulfilled" ? profile.value?.profile : {};
+  const p2 = profileV2.status === "fulfilled" ? profileV2.value?.profile || {} : {};
   const ob = onboarding.status === "fulfilled" ? onboarding.value?.onboarding || {} : {};
   const rs = resumes.status === "fulfilled" ? resumes.value?.resumes || [] : [];
+  const targets = (() => {
+    try { return Array.isArray(JSON.parse(p2.target_roles || "[]")) ? JSON.parse(p2.target_roles || "[]").join(", ") : ""; }
+    catch { return ""; }
+  })();
+  const incomplete = !p?.name && !p?.title && !p?.summary && !targets && rs.length === 0;
 
   root.innerHTML = "";
-  root.appendChild(el("h2", {}, "Profile · Resume"));
-  root.appendChild(el("p", { class: "muted" }, "Your career profile, onboarding state, and resume uploads. Velum redacts PII on every upload."));
+  root.appendChild(el("h2", {}, "Profile"));
+  root.appendChild(el("p", { class: "muted" }, "Edit exactly what Cursus knows about you. New installs start blank; resume uploads are Velum-reviewed before storage."));
+  if (incomplete) root.appendChild(el("div", { class: "banner warn" }, "Profile incomplete. No campaign, resume, target role, or personal profile data is set."));
 
   // Profile card
   const profForm = el("form", { class: "card" },
-    el("h3", {}, "Profile"),
+    el("h3", {}, "Editable profile workspace"),
     el("div", { class: "form-grid" },
-      el("label", {}, "Name"),       el("input", { name: "name",     value: p?.name || "" }),
-      el("label", {}, "Title"),      el("input", { name: "title",    value: p?.title || "" }),
-      el("label", {}, "Location"),   el("input", { name: "location", value: p?.location || "" }),
-      el("label", {}, "Summary"),    el("textarea", { name: "summary" }, p?.summary || ""),
+      el("label", {}, "Name"),                  el("input", { name: "name", value: p?.name || "" }),
+      el("label", {}, "Email"),                 el("input", { name: "email", type: "email", value: p?.email || "" }),
+      el("label", {}, "Phone"),                 el("input", { name: "phone", value: p?.phone || "" }),
+      el("label", {}, "Location"),              el("input", { name: "location", value: p?.location || "" }),
+      el("label", {}, "Professional title"),    el("input", { name: "title", value: p?.title || "" }),
+      el("label", {}, "Target roles"),          el("input", { name: "target_roles", value: targets, placeholder: "comma-separated roles" }),
+      el("label", {}, "Work preference"),       el("input", { name: "work_preference", value: p?.work_preference || ob.work_preference || "", placeholder: "remote / hybrid / onsite" }),
+      el("label", {}, "Preferred locations"),   el("input", { name: "preferred_locations", value: p?.preferred_locations || ob.preferred_locations || "" }),
+      el("label", {}, "Salary min"),            el("input", { name: "salary_min", type: "number", value: p?.salary_min ?? ob.salary_min ?? "" }),
+      el("label", {}, "Salary max"),            el("input", { name: "salary_max", type: "number", value: p?.salary_max ?? ob.salary_max ?? "" }),
+      el("label", {}, "Years experience"),      el("input", { name: "years_experience", type: "number", min: "0", value: p?.years_experience ?? ob.years_experience ?? "" }),
+      el("label", {}, "Certifications"),        el("textarea", { name: "certifications" }, p?.certifications || ob.certifications || ""),
+      el("label", {}, "Skills"),                el("textarea", { name: "skills" }, p?.skills || ""),
+      el("label", {}, "Links / portfolio"),     el("textarea", { name: "links_json", placeholder: "URLs or JSON if you prefer" }, p?.links_json || ""),
+      el("label", {}, "Privacy mode"),          el("select", { name: "privacy_mode" },
+        el("option", { value: "local-only", selected: (p?.privacy_mode || ob.privacy_mode) === "local-only" }, "local-only"),
+        el("option", { value: "local-preferred", selected: (p?.privacy_mode || ob.privacy_mode) === "local-preferred" }, "local-preferred"),
+        el("option", { value: "cloud-allowed-with-review", selected: (p?.privacy_mode || ob.privacy_mode) === "cloud-allowed-with-review" }, "cloud-allowed-with-review")),
+      el("label", {}, "Provider preference"),   el("input", { name: "provider_preference", value: p?.provider_preference || "" }),
+      el("label", {}, "Summary"),               el("textarea", { name: "summary" }, p?.summary || ""),
     ),
+    el("div", { class: "muted small", id: "profileSavedState" }, `Last saved: ${fmtTime(p?.updated_at)}`),
     el("div", { class: "btn-row", style: "margin-top:.8rem;" },
-      el("button", { class: "btn-primary", type: "submit" }, "Save profile")));
+      el("button", { class: "btn-primary", type: "submit" }, "Save profile"),
+      el("button", { class: "btn-warn", type: "button", onclick: async () => {
+        if (!confirm("Clear profile and onboarding data? Resumes, campaigns, applications, and receipts are not deleted by this button.")) return;
+        try { await api("/cursus/profile/clear", { method: "POST" }); toast("Profile cleared", "warn"); navigate("#profile"); }
+        catch (err) { toast(err.message, "err"); }
+      } }, "Reset / clear profile")));
   profForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(profForm);
     const patch = Object.fromEntries(fd.entries());
     try {
-      await api("/cursus/profile", { method: "PATCH", body: patch });
+      const saved = await api("/cursus/profile", { method: "PATCH", body: patch });
+      $("#profileSavedState").textContent = `Last saved: ${fmtTime(saved.profile?.updated_at || new Date().toISOString())}`;
       toast("Profile saved", "ok");
     } catch (err) { toast(err.message, "err"); }
   });
@@ -610,6 +640,11 @@ async function renderJobScout(root) {
     ));
   root.appendChild(ctxCard);
 
+  if (!c.campaign_id) {
+    root.appendChild(el("div", { class: "banner warn" }, "Create a campaign first. Job Scout will not ingest applications without an active campaign."));
+    return;
+  }
+
   // Manual ingest
   const form = el("form", { class: "card" },
     el("h3", {}, "Ingest a job (manual)"),
@@ -853,6 +888,27 @@ async function renderSettings(root) {
       el("button", { class: "btn-primary", onclick: () => showAuthModal() }, "Set token"),
       el("button", { class: "btn-ghost",   onclick: () => { setToken(""); refreshStatus(); toast("Token cleared", "warn"); navigate("#settings"); } }, "Clear token")));
   root.appendChild(auth);
+
+  const clearAction = (label, path, method = "DELETE") => el("button", { class: "btn-ghost", onclick: async () => {
+    if (!confirm(`${label}? This cannot be undone from the UI.`)) return;
+    try { await api(path, { method }); toast(`${label} complete`, "warn"); refreshStatus(); }
+    catch (err) { toast(err.message, "err"); }
+  } }, label);
+
+  root.appendChild(el("div", { class: "card" },
+    el("h3", {}, "Data management"),
+    el("p", { class: "muted small" }, "Use these controls before release or demos. The factory reset script backs up the DB first and never deletes .env."),
+    el("div", { class: "btn-row" },
+      clearAction("Clear profile", "/cursus/profile/clear", "POST"),
+      clearAction("Clear resumes", "/cursus/resumes"),
+      clearAction("Clear applications", "/cursus/applications"),
+      clearAction("Clear campaigns", "/cursus/campaigns"),
+      clearAction("Clear receipts", "/cursus/receipts"),
+      clearAction("Clear automation queue", "/cursus/automation")),
+    el("p", { class: "small muted" }, "Factory reset / release reset:"),
+    el("pre", {}, "cd /mnt/ai/cursus && scripts/cursus-reset.sh --personal-data-only --dry-run\ncd /mnt/ai/cursus && scripts/cursus-reset.sh --personal-data-only"),
+    el("p", { class: "small muted" }, "Release privacy audit:"),
+    el("pre", {}, "cd /mnt/ai/cursus && scripts/audit-release-privacy.sh")));
 
   // Helpful CLI hints
   root.appendChild(el("div", { class: "card" },

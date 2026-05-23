@@ -73,10 +73,10 @@ check "Dux chat reply echoes input"          'echo "$chat_json" | jq -r .reply |
 
 echo ""
 echo "[6] Velum runs BEFORE provider for sensitive data"
-sens_json="$(curl -fsS -X POST "$CURSUS_URL/cursus/dux/chat" -H "content-type: application/json" -d '{"message":"contact me at jeff@example.com"}')"
+sens_json="$(curl -fsS -X POST "$CURSUS_URL/cursus/dux/chat" -H "content-type: application/json" -d '{"message":"contact me at person@example.test"}')"
 export sens_json
 check "Velum redacted email field"           'echo "$sens_json" | jq -e ".velum.fields_redacted | contains([\"email\"])"'
-check "Provider never saw raw email"         '! echo "$sens_json" | jq -r .reply | grep -q "jeff@example.com"'
+check "Provider never saw raw email"         '! echo "$sens_json" | jq -r .reply | grep -q "person@example.test"'
 
 echo ""
 echo "[7] Receipts written for provider calls"

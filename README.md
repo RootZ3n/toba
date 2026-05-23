@@ -59,6 +59,31 @@ pnpm verify                       # ./scripts/verify-standalone.sh
 pnpm verify:tailscale              # ./scripts/verify-tailscale-ready.sh
 ```
 
+### Release privacy checks
+
+Public/default Cursus starts blank. A fresh DB has an empty profile,
+onboarding incomplete, no active campaign, no applications, no resumes, no
+automation tasks, and no personal receipts. Built-in Dux agents are generic
+only.
+
+Before any public release or demo, run:
+
+```bash
+pnpm test && pnpm typecheck && pnpm build
+./scripts/audit-release-privacy.sh
+./scripts/cursus-reset.sh --personal-data-only --dry-run
+```
+
+To reset a copied or release DB after reviewing the dry-run output:
+
+```bash
+./scripts/cursus-reset.sh --personal-data-only --db /path/to/cursus.db
+```
+
+The reset script backs up the DB first, preserves schema/migrations and `.env`,
+and supports `--keep-provider-config` when you want to preserve configured
+providers while removing user-owned profile/campaign/application/resume data.
+
 ### Front door
 
 `http://localhost:18815/` returns the standalone Cursus web UI. `/api` returns
@@ -121,7 +146,7 @@ OpenRouter has provider-specific env vars that override the generic ones:
 CURSUS_PROVIDER=openrouter
 CURSUS_MODEL=deepseek/deepseek-v4-pro
 CURSUS_PROVIDER_BASE_URL=https://openrouter.ai/api/v1
-CURSUS_OPENROUTER_API_KEY=sk-or-v1-...
+CURSUS_OPENROUTER_API_KEY=OPENROUTER_API_KEY_HERE
 CURSUS_OPENROUTER_REFERER=https://cursus.local
 CURSUS_OPENROUTER_TITLE=Cursus
 CURSUS_LOCAL_ONLY=false
@@ -167,7 +192,7 @@ TOK="..."  # CURSUS_AUTH_TOKEN if running over Tailscale; omit Authorization on 
 
 curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/strategist \
   -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
-  -d '{"provider":"openrouter","model":"deepseek/deepseek-v4-pro","api_key":"sk-or-...","base_url":"https://openrouter.ai/api/v1","temperature":0.4}'
+  -d '{"provider":"openrouter","model":"deepseek/deepseek-v4-pro","api_key":"OPENROUTER_API_KEY_HERE","base_url":"https://openrouter.ai/api/v1","temperature":0.4}'
 
 curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/resume-reviewer \
   -H 'content-type: application/json' \
