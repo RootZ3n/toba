@@ -19,20 +19,52 @@ If Squidley is stopped, Cursus keeps working.
 ## Quick start
 
 ```bash
-# Install
 cd /mnt/ai/cursus
+pnpm run cursus:setup
+# or, equivalently:
+./scripts/cursus-setup.sh
+```
+
+> ⚠️ Do **not** run `pnpm setup` — that's a pnpm built-in command (it
+> configures pnpm itself), not the Cursus wizard. Always use
+> `pnpm run cursus:setup` or call the script directly.
+
+That's the whole thing. `cursus:setup` is an idempotent wizard that:
+
+1. Confirms preflight (cwd, pnpm, systemd, current service path, `.env`, Tailscale).
+2. Runs `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`. Aborts on any failure (does **not** touch the service).
+3. Offers to migrate `cursus.service` to `/mnt/ai/cursus` if it's still on the legacy path. Backs up DB and unit file first.
+4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `/mnt/ai/cursus/.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
+5. Lists Dux agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
+6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `CURSUS_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
+7. Runs `verify-standalone.sh` and (when applicable) `verify-tailscale-ready.sh`.
+8. Prints a clean summary with the live status, Tailscale URL, and exact next commands.
+
+Useful flags:
+```bash
+pnpm run cursus:setup                  # interactive
+pnpm run cursus:setup:noninteractive   # accepts all defaults; skips provider/Tailscale wizards
+./scripts/cursus-setup.sh --skip-tests --skip-migrate --base-url=http://127.0.0.1:18820
+```
+
+### Manual operations
+
+```bash
 pnpm install
-
-# Run tests + typecheck + build
 pnpm test && pnpm typecheck && pnpm build
-
-# Run the service directly (foreground)
-pnpm start
-
-# Or use the systemd service
+pnpm start                        # foreground
 sudo systemctl restart cursus.service
 sudo systemctl status  cursus.service
+pnpm verify                       # ./scripts/verify-standalone.sh
+pnpm verify:tailscale              # ./scripts/verify-tailscale-ready.sh
 ```
+
+### Front door
+
+`http://localhost:18815/` returns the standalone Cursus web UI. `/api` returns
+the programmatic endpoint map with links to `/health`, `/version`, `/status`,
+`/cursus/provider`, `/cursus/dux/agents`, `/cursus/dashboard`, and
+`/cursus/receipts`.
 
 ## Configuration
 
@@ -234,8 +266,10 @@ Network exposure is auto-classified in `/status` as one of:
 - `tailscale_reachable` — `100.64.0.0/10` (Tailscale CGNAT) or `0.0.0.0` (interpreted as "exposed beyond loopback; auth required")
 - `public_bind` — any other non-loopback IP
 
-Public endpoints (no token): `/health`, `/version`. All other endpoints
-require `Authorization: Bearer $CURSUS_AUTH_TOKEN` when `auth_required=true`.
+Public endpoints (no token): `/`, `/api`, `/assets/*`, `/health`, `/version`.
+The UI shell is public so a browser can load the token prompt; sensitive data
+routes still require `Authorization: Bearer $CURSUS_AUTH_TOKEN` when
+`auth_required=true`.
 
 Get your Tailscale IP:
 
@@ -267,7 +301,7 @@ CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
 2. `/cursus/provider`, `/cursus/dux/agents`, `/cursus/receipts`, `/cursus/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
 3. API keys never appear in any GET — `api_key_set: true|false` only.
 4. Bearer comparison uses an exact match against `Bearer <token>` (no prefix tricks).
-5. CORS `*` is permitted by default; if you wire a browser UI, narrow `CURSUS_CORS_ORIGIN` accordingly.
+5. CORS `*` is permitted by default for private-lab use; narrow `CURSUS_CORS_ORIGIN` if exposing beyond the tailnet.
 
 ## Migration: legacy path → canonical
 

@@ -8,6 +8,7 @@ state/
 *.db-wal
 *.db-shm
 .env
+.env*
 .env.local
 .DS_Store
 *.log

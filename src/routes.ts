@@ -6,8 +6,25 @@
  */
 
 import type { FastifyInstance } from "fastify";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import type { CursusV1DB, CursusProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat, DuxAgent } from "./db.js";
 import { CursusV2DB, CURSUS_SCHEMA_VERSION } from "./db.js";
+
+// ── Web SPA assets (loaded once at module init) ──────────────────────────
+const __webDir = (() => {
+  try { return join(dirname(fileURLToPath(import.meta.url)), "web"); }
+  catch { return join(process.cwd(), "src", "web"); }
+})();
+function readWebAsset(name: string): string {
+  const path = join(__webDir, name);
+  if (!existsSync(path)) return "";
+  try { return readFileSync(path, "utf-8"); } catch { return ""; }
+}
+const WEB_INDEX  = readWebAsset("index.html");
+const WEB_APP_JS = readWebAsset("app.js");
+const WEB_STYLES = readWebAsset("styles.css");
 import {
   chat as providerChat,
   getStatus as getProviderStatus,
@@ -57,6 +74,93 @@ export function registerRoutes(
     require_auth_env: null,
     allow_loopback_skip: true,
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Web UI (SPA)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.get("/", async (_req, reply) => {
+    if (!WEB_INDEX) {
+      return reply
+        .header("content-type", "text/plain; charset=utf-8")
+        .status(500)
+        .send("Cursus UI assets not found. Expected src/web/index.html. See /api for the JSON endpoint map.");
+    }
+    return reply.header("content-type", "text/html; charset=utf-8").send(WEB_INDEX);
+  });
+
+  server.get("/assets/app.js", async (_req, reply) => {
+    if (!WEB_APP_JS) return reply.status(404).send("missing");
+    return reply
+      .header("content-type", "text/javascript; charset=utf-8")
+      .header("cache-control", "no-cache")
+      .send(WEB_APP_JS);
+  });
+
+  server.get("/assets/styles.css", async (_req, reply) => {
+    if (!WEB_STYLES) return reply.status(404).send("missing");
+    return reply
+      .header("content-type", "text/css; charset=utf-8")
+      .header("cache-control", "no-cache")
+      .send(WEB_STYLES);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // /api — programmatic landing (links + snapshot for tooling)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.get("/api", async (_req, reply) => {
+    const providerStatus = getProviderStatus();
+    const agents = v2.listDuxAgents();
+    const authNote = network.auth_required
+      ? `<p class="warn">Auth is <strong>required</strong>. Send <code>Authorization: Bearer &lt;token&gt;</code>.</p>`
+      : `<p class="ok">Loopback-only — no token required.</p>`;
+    const agentList = agents.map(a =>
+      `<li><code>${a.id}</code> ${a.provider ? `(${a.provider}/${a.model ?? "?"})` : "(default)"}</li>`
+    ).join("");
+    const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cursus · API map</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin: 0 0 .25rem; }
+  .sub { color: #888; margin-top: 0; }
+  .grid { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 1rem 0; }
+  code { background: rgba(127,127,127,.15); padding: .1rem .3rem; border-radius: 3px; }
+  .ok   { color: #1a7f1a; } .warn { color: #b86c00; }
+  ul.routes li { margin: .2rem 0; }
+  a.btn { display: inline-block; padding: .35rem .7rem; border: 1px solid rgba(127,127,127,.35); border-radius: 4px; text-decoration: none; margin: .15rem .25rem .15rem 0; }
+  hr { border: none; border-top: 1px solid rgba(127,127,127,.25); margin: 1.5rem 0; }
+  footer { color: #888; font-size: 13px; }
+</style></head><body>
+<h1>Cursus · API map</h1>
+<p class="sub">Programmatic endpoints — v${CURSUS_VERSION} (schema v${CURSUS_SCHEMA_VERSION}). For the interactive UI, go to <a href="/">/</a>.</p>
+<div class="grid">
+  <div>Mode</div>           <div><code>standalone</code></div>
+  <div>Bind</div>           <div><code>${network.host}:${network.port}</code> · <code>${network.exposure}</code></div>
+  <div>Auth required</div>  <div>${network.auth_required ? "yes" : "no"}</div>
+  <div>Provider</div>       <div><code>${providerStatus.provider}</code> / <code>${providerStatus.model}</code> ${providerStatus.local ? "(local)" : "(cloud)"} · ${providerStatus.configured ? "configured" : "<span class=\"warn\">not configured</span>"}</div>
+  <div>Local-only</div>     <div>${providerStatus.local_only_mode ? "yes" : "no"}</div>
+  <div>Dux agents</div>     <div>${agents.length} seeded (${agents.filter(a => a.provider || a.model).length} with overrides)</div>
+</div>
+${authNote}
+<p>JSON endpoints:</p>
+<a class="btn" href="/health">/health</a>
+<a class="btn" href="/version">/version</a>
+<a class="btn" href="/status">/status</a>
+<a class="btn" href="/cursus/provider">/cursus/provider</a>
+<a class="btn" href="/cursus/dux/agents">/cursus/dux/agents</a>
+<a class="btn" href="/cursus/dashboard">/cursus/dashboard</a>
+<a class="btn" href="/cursus/receipts">/cursus/receipts</a>
+<h2>Dux agents</h2>
+<ul class="routes">${agentList}</ul>
+<hr>
+<footer>UI: <a href="/">/</a> · Setup: <code>pnpm run cursus:setup</code> · Verify: <code>./scripts/verify-standalone.sh</code></footer>
+</body></html>`;
+    return reply.header("content-type", "text/html; charset=utf-8").send(html);
+  });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Health + Version + Status

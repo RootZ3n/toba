@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Cursus — Career Command Center</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<!-- ── Top bar ─────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▣</span>
+    <div>
+      <h1>Cursus</h1>
+      <p class="sub">Career Command Center · standalone</p>
+    </div>
+  </div>
+  <nav class="status-strip" aria-label="service status">
+    <span class="chip" data-bind="status.service">service</span>
+    <span class="chip" data-bind="status.exposure">net</span>
+    <span class="chip" data-bind="status.provider">provider</span>
+    <span class="chip" data-bind="status.auth">auth</span>
+    <button id="authBtn" class="btn-ghost" title="Auth / token">⚿</button>
+  </nav>
+</header>
+
+<!-- ── Layout: side nav + main panel ───────────────────────────────── -->
+<div class="layout">
+  <aside class="sidenav">
+    <a href="#dashboard"  class="nav-item">▢ Dashboard</a>
+    <a href="#dux"        class="nav-item">◈ Dux Chat</a>
+    <a href="#profile"    class="nav-item">⌬ Profile · Resume</a>
+    <a href="#agents"     class="nav-item">◉ Dux Agents</a>
+    <a href="#campaigns"  class="nav-item">⚐ Campaigns</a>
+    <a href="#jobscout"   class="nav-item">⌖ Job Scout</a>
+    <a href="#apps"       class="nav-item">≣ Applications</a>
+    <a href="#queue"      class="nav-item">⊞ Automation Queue</a>
+    <a href="#receipts"   class="nav-item">∾ Receipts</a>
+    <a href="#settings"   class="nav-item">⚙ Settings</a>
+    <div class="nav-foot">
+      <span class="muted small" data-bind="status.version">cursus</span>
+      <a class="muted small" href="/api">/api map</a>
+    </div>
+  </aside>
+
+  <main id="main" class="panel" aria-live="polite">
+    <!-- views rendered by app.js -->
+    <section class="loading">Connecting to Cursus…</section>
+  </main>
+</div>
+
+<!-- ── Auth modal ──────────────────────────────────────────────────── -->
+<div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+  <div class="modal-card">
+    <h2 id="authTitle">Auth required</h2>
+    <p class="muted">This Cursus instance requires a bearer token. Paste your <code>CURSUS_AUTH_TOKEN</code>.</p>
+    <input id="authInput" type="password" placeholder="Bearer token…" autocomplete="off" />
+    <p id="authErr" class="err" hidden></p>
+    <div class="row">
+      <button id="authSave" class="btn-primary">Save &amp; reconnect</button>
+      <button id="authClear" class="btn-ghost">Clear stored token</button>
+      <button id="authCancel" class="btn-ghost">Close</button>
+    </div>
+    <p class="muted small">Stored in this browser's <code>localStorage</code> only. Cursus never echoes the token in responses.</p>
+  </div>
+</div>
+
+<!-- ── Toast region ────────────────────────────────────────────────── -->
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<!-- ── Templates pre-loaded for IE-style reliability ────────────────── -->
+<template id="tplStat">
+  <div class="stat">
+    <div class="stat-label"></div>
+    <div class="stat-value"></div>
+  </div>
+</template>
+
+<script src="/assets/app.js" defer></script>
+</body>
+</html>

@@ -10,7 +10,11 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "cursus:setup": "bash scripts/cursus-setup.sh",
+    "cursus:setup:noninteractive": "bash scripts/cursus-setup.sh --non-interactive",
+    "verify": "bash scripts/verify-standalone.sh",
+    "verify:tailscale": "bash scripts/verify-tailscale-ready.sh"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

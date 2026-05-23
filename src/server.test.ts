@@ -1683,6 +1683,96 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "none", model: "none", api_key: "" });
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Web UI (SPA) shell
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("GET / serves the SPA shell HTML", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    const body = res.body;
+    // Shell references its static assets
+    expect(body).toContain("/assets/styles.css");
+    expect(body).toContain("/assets/app.js");
+    // Shell mounts the navigation for every required workspace
+    for (const hash of ["#dashboard", "#dux", "#profile", "#agents", "#campaigns", "#jobscout", "#apps", "#queue", "#receipts", "#settings"]) {
+      expect(body).toContain(hash);
+    }
+    // Auth modal + brand
+    expect(body).toContain("Auth required");
+    expect(body).toContain("Career Command Center");
+  });
+
+  it("GET /assets/app.js returns JavaScript with key API calls", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/assets/app.js" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/javascript");
+    const body = res.body;
+    // App talks to the real endpoints
+    expect(body).toContain("/cursus/dux/agents");
+    expect(body).toContain("/cursus/provider");
+    expect(body).toContain("/cursus/receipts");
+    expect(body).toContain("/cursus/job-scout/context");
+    expect(body).toContain("/cursus/automation");
+    // Auth handling
+    expect(body).toContain("cursus_auth_token");
+    expect(body).toContain("Bearer ");
+    // Dux chat must pass agent_id when an agent is selected
+    expect(body).toContain("/cursus/dux/agents/${agentId}/chat");
+  });
+
+  it("GET /assets/styles.css returns CSS", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/assets/styles.css" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/css");
+    expect(res.body).toContain(".chip");
+    expect(res.body).toContain(".sidenav");
+    expect(res.body).toContain(".chat-shell");
+  });
+
+  it("GET /api returns the programmatic endpoint listing HTML", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/api" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.body).toContain("API map");
+    expect(res.body).toContain("/cursus/dux/agents");
+  });
+
+  it("GET / and /assets/* are public (allowed by network guard)", async () => {
+    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
+    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.5", CURSUS_AUTH_TOKEN: "tok" });
+    for (const path of ["/", "/api", "/assets/app.js", "/assets/styles.css", "/assets/anything-else.png"]) {
+      const decision = shouldAllowRequest({ path, remoteAddress: "100.64.0.99", authHeader: undefined, cfg, token: "tok" });
+      expect({ path, ok: decision.ok }).toEqual({ path, ok: true });
+    }
+  });
+
+  it("SPA renders no API key strings even when an agent has a stored key", async () => {
+    const { app } = create();
+    await app.ready();
+    // Configure a per-agent API key via PATCH (typical case)
+    await app.inject({
+      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-SECRET-LEAK-TEST" },
+    });
+    // The SPA shell HTML must not embed any key (it doesn't fetch keys; the API doesn't return them).
+    const shell = await app.inject({ method: "GET", url: "/" });
+    expect(shell.body).not.toContain("sk-or-SECRET-LEAK-TEST");
+    // The agents endpoint sanitizes — double-check
+    const agents = await app.inject({ method: "GET", url: "/cursus/dux/agents" });
+    expect(agents.body).not.toContain("sk-or-SECRET-LEAK-TEST");
+    expect(agents.body).toContain("api_key_set");
+  });
+
   it("Receipt for dux_agent_update is written on PATCH", async () => {
     const { app } = create();
     await app.ready();

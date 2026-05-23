@@ -107,7 +107,15 @@ export function loadNetworkConfig(env: NetworkEnv): NetworkConfig {
 }
 
 /** Endpoints that are always reachable without a token. */
-const PUBLIC_PATHS = new Set(["/health", "/version"]);
+const PUBLIC_PATHS = new Set(["/", "/api", "/health", "/version"]);
+
+/** Path prefixes that are always public (e.g. static assets). */
+const PUBLIC_PREFIXES = ["/assets/"];
+
+function isPublicPath(path: string): boolean {
+  if (PUBLIC_PATHS.has(path)) return true;
+  return PUBLIC_PREFIXES.some(prefix => path.startsWith(prefix));
+}
 
 /**
  * Decide whether a given request should be allowed without a token. Returns
@@ -120,7 +128,7 @@ export function shouldAllowRequest(opts: {
   cfg: NetworkConfig;
   token: string;
 }): { ok: true } | { ok: false; status: number; body: { ok: false; error: string; code: string } } {
-  if (PUBLIC_PATHS.has(opts.path)) return { ok: true };
+  if (isPublicPath(opts.path)) return { ok: true };
   if (!opts.cfg.auth_required) return { ok: true };
 
   const fromLoopback = isLoopbackHost(opts.remoteAddress ?? "");
