@@ -6,7 +6,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { CursusV1DB, CursusProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat } from "./db.js";
+import type { CursusV1DB, CursusProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat, DuxAgent } from "./db.js";
 import { CursusV2DB, CURSUS_SCHEMA_VERSION } from "./db.js";
 import {
   chat as providerChat,
@@ -15,8 +15,12 @@ import {
   applyConfigPatch,
   ProviderError,
   isLocalProvider as providerIsLocal,
+  PROVIDER_REGISTRY,
   type ChatMessage,
+  type ProviderConfig,
 } from "./provider.js";
+import type { NetworkConfig } from "./network.js";
+import { classifyBind } from "./network.js";
 
 const CURSUS_VERSION = process.env["CURSUS_VERSION"] ?? "5.0.0";
 const CURSUS_PORT = parseInt(process.env["CURSUS_PORT"] ?? "18815", 10);
@@ -41,7 +45,18 @@ export function registerRoutes(
   server: FastifyInstance,
   v1: CursusV1DB,
   v2: CursusV2DB,
+  netCfg?: NetworkConfig,
 ): void {
+  // Sensible default for tests / inline use: loopback, no auth.
+  const network: NetworkConfig = netCfg ?? {
+    host: process.env["CURSUS_HOST"] ?? "127.0.0.1",
+    port: parseInt(process.env["CURSUS_PORT"] ?? "18815", 10),
+    exposure: classifyBind(process.env["CURSUS_HOST"] ?? "127.0.0.1"),
+    auth_required: false,
+    auth_token_configured: !!process.env["CURSUS_AUTH_TOKEN"],
+    require_auth_env: null,
+    allow_loopback_skip: true,
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Health + Version + Status
@@ -112,17 +127,46 @@ export function registerRoutes(
     const onboarding = v2.getOnboarding();
     const lastScoutReceipts = v2.listReceipts(1, "job_scout_run");
     const providerStatus = getProviderStatus();
+    const agents = v2.listDuxAgents();
+    const openrouterEnvKeySet = !!(process.env["CURSUS_OPENROUTER_API_KEY"] ?? "");
+    const globalOpenRouterConfigured = providerStatus.provider === "openrouter" && providerStatus.configured;
+    const agentOpenRouterConfigured = agents.some(a => a.provider === "openrouter" && !!a.api_key && !!a.model);
     return reply.send({
       ok: true,
       mode: "standalone",
       bridge_enabled: !!CURSUS_BRIDGE_URL,
-      port: CURSUS_PORT,
+      // ── Network exposure ──
+      host: network.host,
+      port: network.port,
+      network_exposure: network.exposure,
+      auth_required: network.auth_required,
+      auth_token_configured: network.auth_token_configured,
+      // ── Provider/model recap ──
       provider: providerStatus.provider,
       provider_label: providerStatus.provider_label,
       model: providerStatus.model,
       provider_mode: providerStatus.local ? "local" : `cloud:${providerStatus.provider}`,
       provider_configured: providerStatus.configured,
       local_only_mode: providerStatus.local_only_mode,
+      // ── OpenRouter ──
+      openrouter_configured: globalOpenRouterConfigured || agentOpenRouterConfigured || openrouterEnvKeySet,
+      openrouter_source: globalOpenRouterConfigured ? "global" : agentOpenRouterConfigured ? "agent" : openrouterEnvKeySet ? "env" : null,
+      openrouter_env_key_set: openrouterEnvKeySet,
+      // ── Dux agents summary ──
+      dux_agents: {
+        total: agents.length,
+        enabled: agents.filter(a => a.enabled === 1).length,
+        with_overrides: agents.filter(a => a.provider || a.model).length,
+        agents: agents.map(a => ({
+          id: a.id,
+          enabled: a.enabled === 1,
+          provider: a.provider ?? null,
+          model: a.model ?? null,
+          local_only: a.local_only === 1,
+          cloud_allowed: a.cloud_allowed !== 0,
+        })),
+      },
+      // ── Existing ──
       automation_mode: CURSUS_AUTOMATION_MODE,
       active_campaign: activeCampaign
         ? { id: activeCampaign.id, name: activeCampaign.name, target_role: activeCampaign.target_role }
@@ -425,26 +469,72 @@ export function registerRoutes(
     return reply.send({ ok: true, session: v2.createDuxSession((req.body?.session_type ?? req.body?.type ?? "checkin") as any) });
   });
 
-  server.post<{ Body: {
-    session_id?: string;
-    message?: string;
-    messages?: ChatMessage[];
-    system?: string;
-    max_tokens?: number;
-    temperature?: number;
-    velum?: boolean; // override (defaults true — Dux sees career data)
-  } }>("/cursus/dux/chat", async (req, reply) => {
-    const body = req.body ?? {};
+  /**
+   * Resolve the effective ProviderConfig for an agent — agent overrides win
+   * over the in-process default. Returns the config plus the agent's
+   * additional constraints (cloud_allowed, local_only).
+   */
+  function effectiveAgentConfig(agent: DuxAgent | null): {
+    cfg: ProviderConfig;
+    agent_local_only: boolean;
+    agent_cloud_allowed: boolean;
+    using_fallback: boolean;
+  } {
+    const base = getProviderConfig();
+    const cfg: ProviderConfig = { ...base };
+    if (agent) {
+      if (agent.provider)          cfg.provider = agent.provider;
+      if (agent.model)             cfg.model    = agent.model;
+      if (agent.base_url)          cfg.base_url = agent.base_url;
+      else if (agent.provider && PROVIDER_REGISTRY[agent.provider]?.default_base_url && !base.base_url) {
+        cfg.base_url = PROVIDER_REGISTRY[agent.provider]!.default_base_url!;
+      }
+      if (agent.api_key)           cfg.api_key  = agent.api_key;
+      if (agent.local_only === 1)  cfg.local_only = true;
+    }
+    const agent_local_only    = agent?.local_only === 1;
+    const agent_cloud_allowed = agent?.cloud_allowed !== 0; // null/1 = allowed; 0 = blocked
+    return { cfg, agent_local_only, agent_cloud_allowed, using_fallback: false };
+  }
+
+  /**
+   * Run a Dux chat turn. Single implementation used by both the legacy
+   * /cursus/dux/chat (with optional body.agent_id) and the agent-scoped
+   * /cursus/dux/agents/:agentId/chat endpoint.
+   */
+  async function runDuxChat(
+    body: {
+      session_id?: string;
+      message?: string;
+      messages?: ChatMessage[];
+      system?: string;
+      max_tokens?: number;
+      temperature?: number;
+      velum?: boolean;
+      agent_id?: string;
+    },
+    explicitAgent: DuxAgent | null,
+  ): Promise<{ status: number; payload: Record<string, unknown> }> {
+    const agent = explicitAgent ?? (body.agent_id ? v2.getDuxAgent(body.agent_id) : null);
+    if (body.agent_id && !agent) {
+      return { status: 404, payload: { ok: false, error: `Dux agent not found: ${body.agent_id}` } };
+    }
+    if (agent && agent.enabled !== 1) {
+      return { status: 400, payload: { ok: false, error: `Dux agent "${agent.id}" is disabled` } };
+    }
+
     const userText = (body.message ?? "").toString();
     const explicitMessages = Array.isArray(body.messages) ? body.messages : null;
     if (!explicitMessages && !userText.trim()) {
-      return reply.status(400).send({ ok: false, error: "message or messages required" });
+      return { status: 400, payload: { ok: false, error: "message or messages required" } };
     }
 
     // Velum: Dux conversations touch career/profile data by definition. Default ON.
     const velumOn = body.velum !== false;
     const messages: ChatMessage[] = [];
-    if (body.system) messages.push({ role: "system", content: body.system });
+    const systemPrompt = body.system ?? agent?.system_prompt ?? null;
+    if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+
     const fieldsRedacted: string[] = [];
     let redacted = false;
     if (explicitMessages) {
@@ -473,59 +563,198 @@ export function registerRoutes(
         action: "velum_review",
         velum_reviewed: true,
         velum_redacted: redacted,
-        result_summary: `Dux chat Velum review: ${fieldsRedacted.length} fields redacted [${fieldsRedacted.join(", ") || "none"}]`,
+        dux_agent_id: agent?.id ?? null,
+        result_summary: `Dux ${agent?.id ?? "chat"} Velum review: ${fieldsRedacted.length} fields redacted [${fieldsRedacted.join(", ") || "none"}]`,
       });
     }
 
-    const cfg = getProviderConfig();
+    const eff = effectiveAgentConfig(agent);
+    let cfg = eff.cfg;
+    let usingFallback = false;
+
+    // Per-agent guard: cloud_allowed=0 blocks cloud providers for this agent.
+    if (!eff.agent_cloud_allowed && !providerIsLocal(cfg.provider)) {
+      // If agent has a fallback configured, switch to it; otherwise reject.
+      if (agent?.fallback_provider) {
+        cfg = { ...cfg, provider: agent.fallback_provider, model: agent.fallback_model ?? cfg.model };
+        if (PROVIDER_REGISTRY[cfg.provider]?.default_base_url && !cfg.base_url) {
+          cfg = { ...cfg, base_url: PROVIDER_REGISTRY[cfg.provider]!.default_base_url! };
+        }
+        usingFallback = true;
+        if (!providerIsLocal(cfg.provider)) {
+          return { status: 403, payload: { ok: false, code: "agent_cloud_blocked",
+            error: `Dux agent "${agent.id}" has cloud_allowed=false and its fallback "${cfg.provider}" is also cloud. Configure a local fallback.` } };
+        }
+      } else {
+        return { status: 403, payload: { ok: false, code: "agent_cloud_blocked",
+          error: `Dux agent "${agent?.id}" has cloud_allowed=false but the selected provider "${cfg.provider}" is cloud. Configure a local provider for this agent or set fallback_provider.` } };
+      }
+    }
+
     try {
-      const result = await providerChat({
+      const chatReq: { messages: ChatMessage[]; max_tokens?: number; temperature?: number } = {
         messages,
-        ...(body.max_tokens !== undefined ? { max_tokens: body.max_tokens } : {}),
-        ...(body.temperature !== undefined ? { temperature: body.temperature } : {}),
-      });
+      };
+      const maxTokens = body.max_tokens ?? agent?.max_tokens ?? undefined;
+      const temperature = body.temperature ?? agent?.temperature ?? undefined;
+      if (maxTokens !== undefined && maxTokens !== null) chatReq.max_tokens = maxTokens;
+      if (temperature !== undefined && temperature !== null) chatReq.temperature = temperature;
+
+      const result = await providerChat(chatReq, cfg);
       v2.createReceipt({
-        action: "model_call",
+        action: agent ? "dux_agent_chat" : "model_call",
         provider: result.provider,
         model: result.model,
         local_mode: result.local,
         velum_reviewed: velumOn,
         velum_redacted: redacted,
-        result_summary: `Dux chat: ${result.provider}/${result.model} (${result.content.length} chars${result.finish_reason ? `, ${result.finish_reason}` : ""})`,
+        dux_agent_id: agent?.id ?? null,
+        result_summary: `Dux ${agent ? agent.id : "chat"}: ${result.provider}/${result.model} (${result.content.length} chars${result.finish_reason ? `, ${result.finish_reason}` : ""})${usingFallback ? " [fallback]" : ""}`,
       });
-      return reply.send({
-        ok: true,
-        reply: result.content,
-        provider: { provider: result.provider, model: result.model, local: result.local },
-        velum: velumOn ? { reviewed: true, redacted, fields_redacted: fieldsRedacted } : { reviewed: false },
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.finish_reason ? { finish_reason: result.finish_reason } : {}),
-      });
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          reply: result.content,
+          agent: agent ? { id: agent.id, display_name: agent.display_name } : null,
+          provider: { provider: result.provider, model: result.model, local: result.local, fallback_used: usingFallback },
+          velum: velumOn ? { reviewed: true, redacted, fields_redacted: fieldsRedacted } : { reviewed: false },
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.finish_reason ? { finish_reason: result.finish_reason } : {}),
+        },
+      };
     } catch (err) {
       const isProviderErr = err instanceof ProviderError;
       const status = isProviderErr ? err.statusCode : 502;
       const code = isProviderErr ? err.code : "provider_call_failed";
       const msg = err instanceof Error ? err.message : String(err);
       v2.createReceipt({
-        action: "model_call",
+        action: agent ? "dux_agent_chat" : "model_call",
         provider: cfg.provider,
         model: cfg.model,
         local_mode: providerIsLocal(cfg.provider),
         velum_reviewed: velumOn,
         velum_redacted: redacted,
-        result_summary: `Dux chat failed: ${code}`,
+        dux_agent_id: agent?.id ?? null,
+        result_summary: `Dux ${agent ? agent.id : "chat"} failed: ${code}`,
         errors: msg.slice(0, 500),
       });
-      return reply.status(status).send({
-        ok: false,
-        error: msg,
-        code,
-        provider: { provider: cfg.provider, model: cfg.model, local: providerIsLocal(cfg.provider) },
-        hint: cfg.provider === "none"
-          ? "Configure a provider: set CURSUS_PROVIDER and CURSUS_MODEL, or POST /cursus/provider with {provider, model}."
-          : undefined,
-      });
+      void usingFallback;
+      return {
+        status,
+        payload: {
+          ok: false,
+          error: msg,
+          code,
+          agent: agent ? { id: agent.id, display_name: agent.display_name } : null,
+          provider: { provider: cfg.provider, model: cfg.model, local: providerIsLocal(cfg.provider) },
+          hint: cfg.provider === "none"
+            ? "Configure a provider: set CURSUS_PROVIDER and CURSUS_MODEL, or POST /cursus/provider with {provider, model}."
+            : undefined,
+        },
+      };
     }
+  }
+
+  server.post<{ Body: {
+    session_id?: string;
+    message?: string;
+    messages?: ChatMessage[];
+    system?: string;
+    max_tokens?: number;
+    temperature?: number;
+    velum?: boolean;
+    agent_id?: string;
+  } }>("/cursus/dux/chat", async (req, reply) => {
+    const result = await runDuxChat(req.body ?? {}, null);
+    return reply.status(result.status).send(result.payload);
+  });
+
+  // ───── Dux agent registry ──────────────────────────────────────────────────
+
+  server.get("/cursus/dux/agents", async (_req, reply) => {
+    const agents = v2.listDuxAgents().map(a => CursusV2DB.sanitizeDuxAgent(a));
+    return reply.send({ ok: true, agents, default_provider: getProviderStatus() });
+  });
+
+  server.get<{ Params: { id: string } }>("/cursus/dux/agents/:id", async (req, reply) => {
+    const agent = v2.getDuxAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${req.params.id}` });
+    return reply.send({ ok: true, agent: CursusV2DB.sanitizeDuxAgent(agent), default_provider: getProviderStatus() });
+  });
+
+  const patchAgent = async (
+    req: { params: { id: string }; body?: Record<string, unknown> | null },
+    reply: { status: (n: number) => { send: (b: unknown) => unknown }; send: (b: unknown) => unknown },
+  ) => {
+    const b = req.body ?? {};
+    const id = req.params.id;
+    const existing = v2.getDuxAgent(id);
+    if (!existing) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${id}` });
+
+    // Validate provider if supplied.
+    if (typeof b["provider"] === "string" && !PROVIDER_REGISTRY[(b["provider"] as string).toLowerCase()]) {
+      return reply.status(400).send({ ok: false, code: "unknown_provider",
+        error: `Unknown provider "${b["provider"]}". Available: ${Object.keys(PROVIDER_REGISTRY).join(", ")}.` });
+    }
+    if (typeof b["fallback_provider"] === "string" && b["fallback_provider"] !== "" &&
+        !PROVIDER_REGISTRY[(b["fallback_provider"] as string).toLowerCase()]) {
+      return reply.status(400).send({ ok: false, code: "unknown_provider",
+        error: `Unknown fallback provider "${b["fallback_provider"]}".` });
+    }
+    // Local-only contradiction: agent local_only=1 with cloud provider.
+    const nextProvider = (typeof b["provider"] === "string" ? (b["provider"] as string).toLowerCase() : existing.provider) ?? null;
+    const nextLocalOnly = (typeof b["local_only"] === "boolean" ? (b["local_only"] ? 1 : 0)
+      : typeof b["local_only"] === "number" ? (b["local_only"] ? 1 : 0) : existing.local_only);
+    if (nextLocalOnly === 1 && nextProvider && !PROVIDER_REGISTRY[nextProvider]?.local) {
+      return reply.status(400).send({ ok: false, code: "local_only_violation",
+        error: `Cannot set local_only=true on agent "${id}" with cloud provider "${nextProvider}".` });
+    }
+    // Global local_only blocks cloud per-agent providers too.
+    if (getProviderConfig().local_only && nextProvider && !PROVIDER_REGISTRY[nextProvider]?.local) {
+      return reply.status(400).send({ ok: false, code: "local_only_violation",
+        error: `Global CURSUS_LOCAL_ONLY=true blocks cloud provider "${nextProvider}" for agent "${id}".` });
+    }
+
+    const patch: Partial<DuxAgent> = {};
+    const passthrough = ["display_name", "role", "provider", "model", "base_url", "api_key",
+      "temperature", "max_tokens", "system_prompt", "fallback_provider", "fallback_model"];
+    for (const k of passthrough) {
+      if (b[k] !== undefined) (patch as Record<string, unknown>)[k] = b[k];
+    }
+    for (const k of ["enabled", "local_only", "cloud_allowed"]) {
+      if (b[k] !== undefined) {
+        const v = b[k];
+        (patch as Record<string, unknown>)[k] = typeof v === "boolean" ? (v ? 1 : 0) : v === null ? null : Number(v) ? 1 : 0;
+      }
+    }
+    const updated = v2.updateDuxAgent(id, patch);
+    v2.createReceipt({
+      action: "dux_agent_update",
+      dux_agent_id: id,
+      provider: updated?.provider ?? null,
+      model: updated?.model ?? null,
+      local_mode: updated?.local_only === 1 || (updated?.provider ? PROVIDER_REGISTRY[updated.provider]?.local ?? false : true),
+      result_summary: `Dux agent ${id} updated: ${Object.keys(patch).join(", ") || "(no changes)"}`,
+    });
+    return reply.send({ ok: true, agent: updated ? CursusV2DB.sanitizeDuxAgent(updated) : null });
+  };
+  server.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/cursus/dux/agents/:id", patchAgent as never);
+  server.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/cursus/dux/agents/:id/provider", patchAgent as never);
+
+  server.post<{ Params: { id: string }; Body: {
+    session_id?: string;
+    message?: string;
+    messages?: ChatMessage[];
+    system?: string;
+    max_tokens?: number;
+    temperature?: number;
+    velum?: boolean;
+  } }>("/cursus/dux/agents/:id/chat", async (req, reply) => {
+    const agent = v2.getDuxAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${req.params.id}` });
+    const result = await runDuxChat(req.body ?? {}, agent);
+    return reply.status(result.status).send(result.payload);
   });
 
   // Profile V2 extensions

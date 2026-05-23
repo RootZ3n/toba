@@ -9,17 +9,27 @@
  *   - "ollama"    — local Ollama daemon (OpenAI-compatible /api/chat shape)
  *   - "openai"    — OpenAI-compatible /v1/chat/completions
  *   - "anthropic" — Anthropic /v1/messages
- *   - "openrouter"— OpenAI-compatible via OpenRouter
+ *   - "openrouter"— OpenAI-compatible via OpenRouter (e.g. deepseek/deepseek-v4-pro)
  *
  * Local providers (no network/API key): "none", "echo", "ollama".
  * All others are treated as cloud and blocked when CURSUS_LOCAL_ONLY=true.
  *
  * Env vars (defaults):
- *   CURSUS_PROVIDER           = "none"
- *   CURSUS_MODEL              = "none"
- *   CURSUS_PROVIDER_BASE_URL  = ""       (alias: CURSUS_PROVIDER_API_BASE)
- *   CURSUS_PROVIDER_API_KEY   = ""       (never echoed in status)
- *   CURSUS_LOCAL_ONLY         = "false"  (when true, cloud providers are rejected)
+ *   CURSUS_PROVIDER             = "none"
+ *   CURSUS_MODEL                = "none"
+ *   CURSUS_PROVIDER_BASE_URL    = ""       (alias: CURSUS_PROVIDER_API_BASE)
+ *   CURSUS_PROVIDER_API_KEY     = ""       (never echoed in status)
+ *   CURSUS_LOCAL_ONLY           = "false"  (when true, cloud providers are rejected)
+ *
+ * OpenRouter-specific (override generic CURSUS_PROVIDER_* when openrouter is selected):
+ *   CURSUS_OPENROUTER_API_KEY   — preferred API key env for openrouter (falls back to CURSUS_PROVIDER_API_KEY)
+ *   CURSUS_OPENROUTER_REFERER   — optional HTTP-Referer header (e.g. https://cursus.local)
+ *   CURSUS_OPENROUTER_TITLE     — optional X-Title header (default "Cursus")
+ *
+ * Per-call overrides:
+ *   The `chat(req, overrides)` entry point accepts a partial config that wins over
+ *   the in-process default. Per-agent Dux selection uses this to route specific
+ *   agents to specific provider/model combinations.
  */
 import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -42,7 +52,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderDef> = {
   ollama:     { id: "ollama",     label: "Ollama (local daemon)",        local: true,  requires_api_key: false, requires_base_url: false, default_base_url: "http://127.0.0.1:11434" },
   openai:     { id: "openai",     label: "OpenAI",                       local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.openai.com" },
   anthropic:  { id: "anthropic",  label: "Anthropic",                    local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.anthropic.com" },
-  openrouter: { id: "openrouter", label: "OpenRouter (OpenAI-compat)",   local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://openrouter.ai/api" },
+  openrouter: { id: "openrouter", label: "OpenRouter (OpenAI-compat)",   local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://openrouter.ai/api/v1" },
 };
 
 export interface ProviderConfig {
@@ -103,7 +113,13 @@ function defaultConfigFromEnv(): ProviderConfig {
     process.env["CURSUS_PROVIDER_API_BASE"] ??
     PROVIDER_REGISTRY[provider]?.default_base_url ??
     "";
-  const api_key = process.env["CURSUS_PROVIDER_API_KEY"] ?? "";
+  // Provider-specific API key env wins over generic CURSUS_PROVIDER_API_KEY.
+  const apiKeyForProvider =
+    provider === "openrouter" ? process.env["CURSUS_OPENROUTER_API_KEY"] :
+    provider === "openai"     ? process.env["CURSUS_OPENAI_API_KEY"]     :
+    provider === "anthropic"  ? process.env["CURSUS_ANTHROPIC_API_KEY"]  :
+    undefined;
+  const api_key = apiKeyForProvider ?? process.env["CURSUS_PROVIDER_API_KEY"] ?? "";
   const local_only = (process.env["CURSUS_LOCAL_ONLY"] ?? "").toLowerCase() === "true";
   return { provider, model, base_url, api_key, local_only };
 }
@@ -277,10 +293,19 @@ async function chatOllama(req: ChatRequest, cfg: ProviderConfig): Promise<ChatRe
 
 async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerId: "openai" | "openrouter"): Promise<ChatResponse> {
   const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
-  const path = providerId === "openrouter" ? "/v1/chat/completions" : "/v1/chat/completions";
-  const res = await httpJson("POST", `${base.replace(/\/$/, "")}${path}`, {
+  // OpenAI uses /v1/chat/completions; OpenRouter's v1 is baked into its base URL,
+  // so the path on OpenRouter is just /chat/completions.
+  const path = providerId === "openrouter" ? "/chat/completions" : "/v1/chat/completions";
+  const headers: Record<string, string> = {
     "authorization": `Bearer ${cfg.api_key}`,
-  }, {
+  };
+  if (providerId === "openrouter") {
+    const referer = process.env["CURSUS_OPENROUTER_REFERER"];
+    const title = process.env["CURSUS_OPENROUTER_TITLE"] ?? "Cursus";
+    if (referer) headers["HTTP-Referer"] = referer;
+    headers["X-Title"] = title;
+  }
+  const res = await httpJson("POST", `${base.replace(/\/$/, "")}${path}`, headers, {
     model: cfg.model,
     messages: req.messages,
     ...(req.max_tokens !== undefined ? { max_tokens: req.max_tokens } : {}),
@@ -302,6 +327,67 @@ async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerI
     finish_reason: choice?.finish_reason,
     usage: parsed.usage ? { input_tokens: parsed.usage.prompt_tokens, output_tokens: parsed.usage.completion_tokens } : undefined,
   };
+}
+
+/**
+ * Build the exact request that would go on the wire for a given provider/cfg.
+ * Used by tests to verify URL/headers/body shape without making real calls.
+ * Never includes the resolved API key in the returned `headers` object —
+ * the bearer is replaced with a length-only placeholder.
+ */
+export function buildRequestPreview(cfg: ProviderConfig, req: ChatRequest): {
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+} {
+  switch (cfg.provider) {
+    case "openrouter":
+    case "openai": {
+      const providerId = cfg.provider as "openai" | "openrouter";
+      const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
+      const path = providerId === "openrouter" ? "/chat/completions" : "/v1/chat/completions";
+      const headers: Record<string, string> = {
+        "authorization": cfg.api_key ? `Bearer [REDACTED:${cfg.api_key.length}]` : "Bearer [unset]",
+      };
+      if (providerId === "openrouter") {
+        const referer = process.env["CURSUS_OPENROUTER_REFERER"];
+        const title = process.env["CURSUS_OPENROUTER_TITLE"] ?? "Cursus";
+        if (referer) headers["HTTP-Referer"] = referer;
+        headers["X-Title"] = title;
+      }
+      return {
+        url: `${base.replace(/\/$/, "")}${path}`,
+        headers,
+        body: {
+          model: cfg.model,
+          messages: req.messages,
+          ...(req.max_tokens !== undefined ? { max_tokens: req.max_tokens } : {}),
+          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+        },
+      };
+    }
+    case "anthropic": {
+      const base = cfg.base_url || "https://api.anthropic.com";
+      return {
+        url: `${base.replace(/\/$/, "")}/v1/messages`,
+        headers: {
+          "x-api-key": cfg.api_key ? `[REDACTED:${cfg.api_key.length}]` : "[unset]",
+          "anthropic-version": "2023-06-01",
+        },
+        body: { model: cfg.model, messages: req.messages },
+      };
+    }
+    case "ollama": {
+      const base = cfg.base_url || "http://127.0.0.1:11434";
+      return {
+        url: `${base.replace(/\/$/, "")}/api/chat`,
+        headers: {},
+        body: { model: cfg.model, messages: req.messages, stream: false },
+      };
+    }
+    default:
+      return { url: "", headers: {}, body: {} };
+  }
 }
 
 async function chatAnthropic(req: ChatRequest, cfg: ProviderConfig): Promise<ChatResponse> {

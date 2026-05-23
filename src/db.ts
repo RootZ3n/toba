@@ -15,7 +15,7 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 
 /** Current schema version — bump when adding tables/columns */
-export const CURSUS_SCHEMA_VERSION = 5;
+export const CURSUS_SCHEMA_VERSION = 6;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,8 @@ export type ReceiptAction =
   | "outreach_generate" | "outreach_approve" | "outreach_reject"
   | "onboarding_complete" | "resume_ingest"
   | "automation_create" | "automation_approve" | "automation_reject" | "automation_execute"
-  | "insight_generate" | "job_scout_search";
+  | "insight_generate" | "job_scout_search"
+  | "dux_agent_update" | "dux_agent_chat";
 
 export interface Receipt {
   id: string;
@@ -94,6 +95,31 @@ export interface Receipt {
   result_summary: string;
   errors: string | null;
   warnings: string | null;
+  dux_agent_id: string | null;
+}
+
+// ── Dux agent registry ──────────────────────────────────────────────────────
+// Per-agent provider/model overrides. Null fields fall back to the global
+// Cursus default provider config.
+
+export interface DuxAgent {
+  id: string;                  // kebab-case agent id, e.g. "strategist"
+  display_name: string;
+  role: string;                // human-readable role description
+  enabled: number;             // 0/1 (sqlite boolean)
+  provider: string | null;     // null = fall back to default
+  model: string | null;
+  base_url: string | null;
+  api_key: string | null;      // per-agent override (never returned by GET)
+  local_only: number | null;   // null = follow default; 0 = allow cloud; 1 = force local
+  cloud_allowed: number | null;// explicit allow flag for cloud calls
+  temperature: number | null;
+  max_tokens: number | null;
+  system_prompt: string | null;
+  fallback_provider: string | null;
+  fallback_model: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // Search lane types
@@ -800,6 +826,52 @@ export class CursusV2DB {
     for (const sql of appColsV5) {
       try { this.db.exec(sql); } catch { /* already exists */ }
     }
+
+    // ── Schema V6: Dux agent registry + receipt.dux_agent_id ────────────────
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS cursus_dux_agents (
+        id                TEXT PRIMARY KEY,
+        display_name      TEXT NOT NULL,
+        role              TEXT NOT NULL,
+        enabled           INTEGER NOT NULL DEFAULT 1,
+        provider          TEXT,
+        model             TEXT,
+        base_url          TEXT,
+        api_key           TEXT,
+        local_only        INTEGER,
+        cloud_allowed     INTEGER,
+        temperature       REAL,
+        max_tokens        INTEGER,
+        system_prompt     TEXT,
+        fallback_provider TEXT,
+        fallback_model    TEXT,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_dux_agents_enabled ON cursus_dux_agents(enabled);
+    `);
+    try { this.db.exec("ALTER TABLE cursus_receipts ADD COLUMN dux_agent_id TEXT"); } catch { /* already exists */ }
+
+    // Seed built-in agents on first init. UPSERT-safe — never overwrites
+    // user-supplied provider/model overrides.
+    const seedAgents: Array<Pick<DuxAgent, "id" | "display_name" | "role" | "system_prompt">> = [
+      { id: "strategist",        display_name: "Dux Strategist",          role: "Main career strategist. Weekly planning, target-role decisions, narrative coaching.",
+        system_prompt: "You are Dux, the user's career change strategist. Be direct, evidence-based, and avoid corporate fluff. Career data may be Velum-redacted; treat redaction markers as expected." },
+      { id: "resume-reviewer",   display_name: "Resume Reviewer",         role: "Tailors resumes to specific roles; flags weak bullets; suggests STAR-format rewrites.",
+        system_prompt: "You critique and tailor resumes. Be concrete: rewrite weak bullets in STAR form, flag claims that need quantification, never invent metrics." },
+      { id: "outreach-drafter",  display_name: "Outreach Drafter",        role: "Drafts cold emails, recruiter replies, and cover letters in the user's voice.",
+        system_prompt: "You draft outreach. Tone: human, specific, never templated. Always pass through Velum redaction first — never echo redacted markers as if they were real values." },
+      { id: "job-scout-analyst", display_name: "Job Scout Analyst",       role: "Analyzes job postings: fit, legitimacy, salary calibration, application priority.",
+        system_prompt: "You analyze job postings for fit and legitimacy. Grade A-F on fit and legitimacy separately. Call out scams, vague responsibilities, and unrealistic requirements." },
+      { id: "interview-coach",   display_name: "Interview Coach",         role: "Builds and rehearses STAR stories; prepares behavioral and technical responses.",
+        system_prompt: "You coach for interviews. Build STAR stories from the user's experience. Push back when stories are vague. Suggest concrete answers and follow-up questions." },
+    ];
+    const now = new Date().toISOString();
+    const insertAgent = this.db.prepare(`
+      INSERT OR IGNORE INTO cursus_dux_agents (id, display_name, role, enabled, system_prompt, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?, ?)
+    `);
+    for (const a of seedAgents) insertAgent.run(a.id, a.display_name, a.role, a.system_prompt ?? null, now, now);
   }
 
   // ── Onboarding ────────────────────────────────────────────────────────────
@@ -1185,6 +1257,52 @@ export class CursusV2DB {
     return this.db.prepare("DELETE FROM cursus_outreach WHERE id = ? AND status = 'staged'").run(id).changes > 0;
   }
 
+  // ── Dux Agent Registry ─────────────────────────────────────────────────────
+
+  listDuxAgents(includeDisabled = true): DuxAgent[] {
+    const q = includeDisabled
+      ? "SELECT * FROM cursus_dux_agents ORDER BY id"
+      : "SELECT * FROM cursus_dux_agents WHERE enabled = 1 ORDER BY id";
+    return this.db.prepare(q).all() as DuxAgent[];
+  }
+
+  getDuxAgent(id: string): DuxAgent | null {
+    return this.db.prepare("SELECT * FROM cursus_dux_agents WHERE id = ?").get(id) as DuxAgent | null;
+  }
+
+  updateDuxAgent(id: string, patch: Partial<Omit<DuxAgent, "id" | "created_at" | "updated_at">>): DuxAgent | null {
+    if (!this.getDuxAgent(id)) return null;
+    const allowed = [
+      "display_name", "role", "enabled", "provider", "model", "base_url", "api_key",
+      "local_only", "cloud_allowed", "temperature", "max_tokens", "system_prompt",
+      "fallback_provider", "fallback_model",
+    ];
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      if (!allowed.includes(k)) continue;
+      fields.push(`${k} = ?`);
+      // booleans -> 0/1
+      if (typeof v === "boolean") values.push(v ? 1 : 0);
+      else values.push(v as unknown);
+    }
+    if (fields.length === 0) return this.getDuxAgent(id);
+    fields.push("updated_at = ?");
+    values.push(new Date().toISOString());
+    values.push(id);
+    this.db.prepare(`UPDATE cursus_dux_agents SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    return this.getDuxAgent(id);
+  }
+
+  /**
+   * Sanitized projection of an agent: same fields but `api_key` is replaced
+   * by `api_key_set` boolean. Use for API responses.
+   */
+  static sanitizeDuxAgent(agent: DuxAgent): Omit<DuxAgent, "api_key"> & { api_key_set: boolean } {
+    const { api_key, ...rest } = agent;
+    return { ...rest, api_key_set: !!(api_key && api_key.length > 0) };
+  }
+
   // ── Dux Sessions ────────────────────────────────────────────────────────────
 
   listDuxSessions(): DuxSession[] {
@@ -1280,12 +1398,13 @@ export class CursusV2DB {
     result_summary: string;
     errors?: string | null;
     warnings?: string | null;
+    dux_agent_id?: string | null;
   }): Receipt {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO cursus_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO cursus_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings, dux_agent_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.action, now,
       data.campaign_id ?? null,
@@ -1297,13 +1416,20 @@ export class CursusV2DB {
       data.result_summary,
       data.errors ?? null,
       data.warnings ?? null,
+      data.dux_agent_id ?? null,
     );
     return this.db.prepare("SELECT * FROM cursus_receipts WHERE id = ?").get(id) as Receipt;
   }
 
-  listReceipts(limit = 50, action?: ReceiptAction): Receipt[] {
+  listReceipts(limit = 50, action?: ReceiptAction, duxAgentId?: string): Receipt[] {
+    if (action && duxAgentId) {
+      return this.db.prepare("SELECT * FROM cursus_receipts WHERE action = ? AND dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(action, duxAgentId, limit) as Receipt[];
+    }
     if (action) {
       return this.db.prepare("SELECT * FROM cursus_receipts WHERE action = ? ORDER BY timestamp DESC LIMIT ?").all(action, limit) as Receipt[];
+    }
+    if (duxAgentId) {
+      return this.db.prepare("SELECT * FROM cursus_receipts WHERE dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(duxAgentId, limit) as Receipt[];
     }
     return this.db.prepare("SELECT * FROM cursus_receipts ORDER BY timestamp DESC LIMIT ?").all(limit) as Receipt[];
   }

@@ -853,18 +853,21 @@ describe("Cursus standalone", () => {
   });
 
   it("server refuses non-localhost binding without auth token", () => {
+    // The actual guard moved to network.ts; server.ts wires it.
+    const netSrc = readFileSync(join(import.meta.dirname, "network.ts"), "utf-8");
     expect(SERVER_SOURCE).toContain("CURSUS_AUTH_TOKEN");
-    expect(SERVER_SOURCE).toContain("Refusing to start unauthenticated");
+    expect(netSrc).toContain("Refusing to start unauthenticated");
     expect(SERVER_SOURCE).toContain("process.exit(1)");
   });
 
-  it("no hardcoded provider IDs in routes source — providers must come from the registry", () => {
+  it("routes don't carry provider dispatch logic — only the openrouter_configured status flag is allowed", () => {
     const routesSrc = readFileSync(join(import.meta.dirname, "routes.ts"), "utf-8");
-    // routes.ts must not name specific providers — those live in provider.ts's registry.
-    expect(routesSrc).not.toContain("openrouter");
-    expect(routesSrc).not.toContain("anthropic");
-    // "openai" only appears in routes.ts if hardcoded — verify it doesn't.
-    expect(routesSrc).not.toMatch(/['"]openai['"]/);
+    // routes.ts must not implement any provider-specific request/adapter logic.
+    expect(routesSrc).not.toMatch(/case\s+['"]openrouter['"]/);
+    expect(routesSrc).not.toMatch(/case\s+['"]anthropic['"]/);
+    expect(routesSrc).not.toMatch(/case\s+['"]openai['"]/);
+    expect(routesSrc).not.toMatch(/Bearer\s+\$\{[^}]*api_key/i); // no auth-header construction here
+    expect(routesSrc).not.toMatch(/chat\/completions/); // no adapter URLs here
   });
 
   it("routes source delegates provider/model decisions to the provider module", () => {
@@ -1150,11 +1153,11 @@ describe("Cursus standalone", () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // V5: Schema version
+  // V6: Schema version
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("schema is now v5", () => {
-    expect(CURSUS_SCHEMA_VERSION).toBe(5);
+  it("schema is now v6", () => {
+    expect(CURSUS_SCHEMA_VERSION).toBe(6);
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1373,5 +1376,320 @@ describe("Cursus standalone", () => {
   // Sanity: the server module itself must compile + run without any Squidley env var set.
   it("server source contains no required Squidley env var", () => {
     expect(SERVER_SOURCE).not.toMatch(/process\.env\["SQUIDLEY_[A-Z_]+"]\s*\?\?\s*[a-z]/i);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE 6: Per-Dux-agent provider/model selection
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("GET /cursus/dux/agents returns the seeded registry", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/cursus/dux/agents" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.agents)).toBe(true);
+    const ids = body.agents.map((a: { id: string }) => a.id);
+    expect(ids).toContain("strategist");
+    expect(ids).toContain("resume-reviewer");
+    expect(ids).toContain("outreach-drafter");
+    expect(ids).toContain("job-scout-analyst");
+    expect(ids).toContain("interview-coach");
+    // Every agent must be sanitized — no api_key fields leaked.
+    for (const a of body.agents) {
+      expect(a.api_key).toBeUndefined();
+      expect(typeof a.api_key_set).toBe("boolean");
+    }
+    expect(body.default_provider).toBeDefined();
+  });
+
+  it("PATCH /cursus/dux/agents/:id persists per-agent provider/model and never leaks api_key", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      payload: {
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4-pro",
+        base_url: "https://openrouter.ai/api/v1",
+        api_key: "sk-or-strategist-secret",
+        temperature: 0.4,
+        max_tokens: 800,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.agent.provider).toBe("openrouter");
+    expect(body.agent.model).toBe("deepseek/deepseek-v4-pro");
+    expect(body.agent.base_url).toBe("https://openrouter.ai/api/v1");
+    expect(body.agent.api_key).toBeUndefined();
+    expect(body.agent.api_key_set).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("sk-or-strategist-secret");
+
+    // Verify persistence via GET
+    const reread = await app.inject({ method: "GET", url: "/cursus/dux/agents/strategist" });
+    expect(reread.json().agent.provider).toBe("openrouter");
+    expect(JSON.stringify(reread.json())).not.toContain("sk-or-strategist-secret");
+  });
+
+  it("agent A uses model X while agent B uses model Y, in parallel", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "global-default" });
+    const { app } = create();
+    await app.ready();
+    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/strategist",      payload: { provider: "echo", model: "strategist-model" } });
+    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { provider: "echo", model: "reviewer-model"   } });
+
+    const a = await app.inject({ method: "POST", url: "/cursus/dux/agents/strategist/chat",      payload: { message: "weekly plan" } });
+    const b = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "tighten bullets"  } });
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(200);
+    expect(a.json().provider.model).toBe("strategist-model");
+    expect(b.json().provider.model).toBe("reviewer-model");
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  it("agent without overrides falls back to global default provider", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "global-fallback" });
+    const { app } = create();
+    await app.ready();
+    // outreach-drafter has no override yet
+    const res = await app.inject({ method: "POST", url: "/cursus/dux/agents/outreach-drafter/chat", payload: { message: "hi" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().provider.model).toBe("global-fallback");
+    expect(res.json().agent.id).toBe("outreach-drafter");
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  it("PATCH with local_only=true on agent rejects cloud provider", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "PATCH", url: "/cursus/dux/agents/interview-coach",
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", local_only: true },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("local_only_violation");
+  });
+
+  it("agent with cloud_allowed=false on a cloud default falls back or blocks", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-test", base_url: "https://openrouter.ai/api/v1" });
+    const { app } = create();
+    await app.ready();
+    // Block cloud for resume-reviewer with no fallback
+    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { cloud_allowed: false } });
+    const blocked = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "blocked" } });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json().code).toBe("agent_cloud_blocked");
+
+    // Now give it a local fallback
+    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { fallback_provider: "echo", fallback_model: "local-stand-in" } });
+    const ok = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "via fallback" } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().provider.provider).toBe("echo");
+    expect(ok.json().provider.fallback_used).toBe(true);
+    applyConfigPatch({ provider: "none", model: "none", api_key: "", base_url: "" });
+  });
+
+  it("receipts for agent chat carry dux_agent_id, provider, and model", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "receipts-model" });
+    const { app } = create();
+    await app.ready();
+    await app.inject({ method: "POST", url: "/cursus/dux/agents/strategist/chat", payload: { message: "trace me" } });
+    const res = await app.inject({ method: "GET", url: "/cursus/receipts?action=dux_agent_chat&limit=10" });
+    const recs = res.json().receipts as Array<Record<string, unknown>>;
+    expect(recs.length).toBeGreaterThan(0);
+    expect(recs[0]!.dux_agent_id).toBe("strategist");
+    expect(recs[0]!.provider).toBe("echo");
+    expect(recs[0]!.model).toBe("receipts-model");
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  it("Velum runs BEFORE the agent's provider sees sensitive data", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "velum-test" });
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "POST", url: "/cursus/dux/agents/outreach-drafter/chat",
+      payload: { message: "Draft an email mentioning jeff@example.com and 555-123-4567" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().reply).toContain("[EMAIL-REDACTED]");
+    expect(res.json().reply).toContain("[PHONE-REDACTED]");
+    expect(res.json().reply).not.toContain("jeff@example.com");
+    expect(res.json().reply).not.toContain("555-123-4567");
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE 7: OpenRouter (DeepSeek v4 Pro)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("OpenRouter request shape: URL is /chat/completions on /api/v1 base, with Bearer + X-Title", async () => {
+    const { buildRequestPreview } = await import("./provider.js");
+    const preview = buildRequestPreview(
+      { provider: "openrouter", model: "deepseek/deepseek-v4-pro", base_url: "https://openrouter.ai/api/v1", api_key: "sk-or-XYZ", local_only: false },
+      { messages: [{ role: "user", content: "hi" }] },
+    );
+    expect(preview.url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(preview.headers["authorization"]).toMatch(/^Bearer \[REDACTED:\d+\]$/);
+    expect(preview.headers["X-Title"]).toBeDefined();
+    expect(preview.body["model"]).toBe("deepseek/deepseek-v4-pro");
+    expect(JSON.stringify(preview)).not.toContain("sk-or-XYZ");
+  });
+
+  it("OpenRouter respects HTTP-Referer when CURSUS_OPENROUTER_REFERER is set", async () => {
+    process.env["CURSUS_OPENROUTER_REFERER"] = "https://cursus.local";
+    const { buildRequestPreview } = await import("./provider.js");
+    const preview = buildRequestPreview(
+      { provider: "openrouter", model: "deepseek/deepseek-v4-pro", base_url: "https://openrouter.ai/api/v1", api_key: "k", local_only: false },
+      { messages: [{ role: "user", content: "x" }] },
+    );
+    expect(preview.headers["HTTP-Referer"]).toBe("https://cursus.local");
+    delete process.env["CURSUS_OPENROUTER_REFERER"];
+  });
+
+  it("CURSUS_OPENROUTER_API_KEY env wins over generic CURSUS_PROVIDER_API_KEY for openrouter", async () => {
+    process.env["CURSUS_PROVIDER"] = "openrouter";
+    process.env["CURSUS_MODEL"] = "deepseek/deepseek-v4-pro";
+    process.env["CURSUS_PROVIDER_API_KEY"] = "generic-key";
+    process.env["CURSUS_OPENROUTER_API_KEY"] = "openrouter-specific-key";
+    const { resetConfigFromEnv, getConfig } = await import("./provider.js");
+    resetConfigFromEnv();
+    const cfg = getConfig();
+    expect(cfg.provider).toBe("openrouter");
+    expect(cfg.api_key).toBe("openrouter-specific-key");
+    delete process.env["CURSUS_PROVIDER"];
+    delete process.env["CURSUS_MODEL"];
+    delete process.env["CURSUS_PROVIDER_API_KEY"];
+    delete process.env["CURSUS_OPENROUTER_API_KEY"];
+    resetConfigFromEnv();
+  });
+
+  it("OpenRouter status surfaces openrouter_configured boolean without leaking key", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-XXXXXXXXXX", base_url: "https://openrouter.ai/api/v1" });
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/status" });
+    const body = res.json();
+    expect(body.provider).toBe("openrouter");
+    expect(body.model).toBe("deepseek/deepseek-v4-pro");
+    expect(body.openrouter_configured).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("sk-or-XXXXXXXXXX");
+    applyConfigPatch({ provider: "none", model: "none", api_key: "" });
+  });
+
+  it("local_only blocks OpenRouter at selection time", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "debug", local_only: true });
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "PATCH", url: "/cursus/provider",
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-X" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("local_only_violation");
+    applyConfigPatch({ local_only: false, provider: "none", model: "none" });
+  });
+
+  it("Dux agent can select OpenRouter DeepSeek v4 Pro", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-test" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent.provider).toBe("openrouter");
+    expect(res.json().agent.model).toBe("deepseek/deepseek-v4-pro");
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE 8: Tailscale-safe network auth
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("network classifier identifies loopback / Tailscale / public", async () => {
+    const { classifyBind, isTailscaleIp, isLoopbackHost } = await import("./network.js");
+    expect(classifyBind("127.0.0.1")).toBe("loopback_only");
+    expect(classifyBind("localhost")).toBe("loopback_only");
+    expect(classifyBind("::1")).toBe("loopback_only");
+    expect(classifyBind("100.64.0.1")).toBe("tailscale_reachable");
+    expect(classifyBind("100.127.0.99")).toBe("tailscale_reachable");
+    expect(classifyBind("203.0.113.10")).toBe("public_bind");
+    expect(isTailscaleIp("100.100.42.7")).toBe(true);
+    expect(isTailscaleIp("10.0.0.1")).toBe(false);
+    expect(isLoopbackHost("127.0.0.42")).toBe(true);
+  });
+
+  it("loadNetworkConfig refuses non-loopback bind without a token", async () => {
+    const { loadNetworkConfig } = await import("./network.js");
+    expect(() => loadNetworkConfig({ CURSUS_HOST: "100.64.0.1" })).toThrow(/CURSUS_AUTH_TOKEN/);
+    expect(() => loadNetworkConfig({ CURSUS_HOST: "0.0.0.0"   })).toThrow(/CURSUS_AUTH_TOKEN/);
+  });
+
+  it("loadNetworkConfig accepts non-loopback bind WITH a token; auth_required becomes true", async () => {
+    const { loadNetworkConfig } = await import("./network.js");
+    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.1", CURSUS_AUTH_TOKEN: "secret-very-long-token-XXXX" });
+    expect(cfg.exposure).toBe("tailscale_reachable");
+    expect(cfg.auth_required).toBe(true);
+    expect(cfg.auth_token_configured).toBe(true);
+  });
+
+  it("CURSUS_REQUIRE_AUTH=true forces auth even on loopback", async () => {
+    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
+    const cfg = loadNetworkConfig({ CURSUS_HOST: "127.0.0.1", CURSUS_AUTH_TOKEN: "tok", CURSUS_REQUIRE_AUTH: "true" });
+    expect(cfg.auth_required).toBe(true);
+    // loopback request without token → rejected
+    const reject = shouldAllowRequest({ path: "/cursus/dashboard", remoteAddress: "127.0.0.1", authHeader: undefined, cfg, token: "tok" });
+    expect(reject.ok).toBe(false);
+    // loopback request with valid bearer → allowed
+    const accept = shouldAllowRequest({ path: "/cursus/dashboard", remoteAddress: "127.0.0.1", authHeader: "Bearer tok", cfg, token: "tok" });
+    expect(accept.ok).toBe(true);
+    // /health remains public
+    const health = shouldAllowRequest({ path: "/health", remoteAddress: "8.8.8.8", authHeader: undefined, cfg, token: "tok" });
+    expect(health.ok).toBe(true);
+  });
+
+  it("remote (Tailscale) request without token is rejected; with token is allowed", async () => {
+    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
+    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.1", CURSUS_AUTH_TOKEN: "tok-XYZ" });
+    const noAuth = shouldAllowRequest({ path: "/cursus/profile", remoteAddress: "100.64.0.7", authHeader: undefined, cfg, token: "tok-XYZ" });
+    expect(noAuth.ok).toBe(false);
+    if (!noAuth.ok) expect(noAuth.status).toBe(401);
+    const withAuth = shouldAllowRequest({ path: "/cursus/profile", remoteAddress: "100.64.0.7", authHeader: "Bearer tok-XYZ", cfg, token: "tok-XYZ" });
+    expect(withAuth.ok).toBe(true);
+  });
+
+  it("/status surfaces network exposure + Dux agent count + OpenRouter posture", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-or-status-test", base_url: "https://openrouter.ai/api/v1" });
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/status" });
+    const body = res.json();
+    expect(body.network_exposure).toBeDefined();
+    expect(body.host).toBeDefined();
+    expect(typeof body.auth_required).toBe("boolean");
+    expect(body.dux_agents.total).toBeGreaterThan(0);
+    expect(Array.isArray(body.dux_agents.agents)).toBe(true);
+    expect(body.openrouter_configured).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("sk-or-status-test");
+    applyConfigPatch({ provider: "none", model: "none", api_key: "" });
+  });
+
+  it("Receipt for dux_agent_update is written on PATCH", async () => {
+    const { app } = create();
+    await app.ready();
+    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/job-scout-analyst", payload: { provider: "echo", model: "scout-debug" } });
+    const recs = await app.inject({ method: "GET", url: "/cursus/receipts?action=dux_agent_update" });
+    const r = recs.json().receipts;
+    expect(r.length).toBeGreaterThan(0);
+    expect(r[0].dux_agent_id).toBe("job-scout-analyst");
   });
 });

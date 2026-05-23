@@ -9,7 +9,7 @@ If Squidley is stopped, Cursus keeps working.
 | Field | Value |
 | --- | --- |
 | Version | 5.0.0 |
-| Schema | 5 |
+| Schema | 6 (Dux agent registry) |
 | Port | 18815 |
 | DB (canonical) | `/mnt/ai/cursus/state/cursus.db` |
 | Service | `cursus.service` (systemd) |
@@ -44,11 +44,13 @@ All configuration is via environment variables. Set them in `/mnt/ai/cursus/.env
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CURSUS_PORT` | `18815` | Listen port |
-| `CURSUS_HOST` | `127.0.0.1` | Listen host. Non-localhost requires `CURSUS_AUTH_TOKEN`. |
+| `CURSUS_HOST` | `127.0.0.1` | Listen host. Non-loopback requires `CURSUS_AUTH_TOKEN`. |
 | `CURSUS_DB_PATH` | `/mnt/ai/cursus/state/cursus.db` | SQLite path |
 | `CURSUS_VERSION` | (from package.json) | Reported version string |
 | `CURSUS_CORS_ORIGIN` | `*` | CORS origin |
-| `CURSUS_AUTH_TOKEN` | (unset) | Bearer token. Required for non-localhost hosts. |
+| `CURSUS_AUTH_TOKEN` | (unset) | Bearer token. Required for non-loopback hosts (Tailscale or public). |
+| `CURSUS_REQUIRE_AUTH` | (unset → auto) | `true` forces auth even on loopback. `false` keeps legacy behavior. |
+| `CURSUS_ALLOW_LOOPBACK_NO_AUTH` | `true` | When a token is set, loopback may still skip auth. Set `false` to require auth on every request. |
 | `CURSUS_AUTOMATION_MODE` | `approval-required` | `manual` / `recommend-only` / `approval-required` |
 
 ### Provider / model (standalone)
@@ -66,10 +68,90 @@ Local providers (no network, no API key):
 - `echo` — In-process debug echo. Useful for verification and tests.
 - `ollama` — Local Ollama daemon. Default base URL `http://127.0.0.1:11434`.
 
-Cloud providers (require `CURSUS_PROVIDER_API_KEY`):
+Cloud providers (require an API key):
 - `openai`     — OpenAI `/v1/chat/completions`
 - `anthropic`  — Anthropic `/v1/messages`
-- `openrouter` — OpenAI-compatible via OpenRouter
+- `openrouter` — OpenAI-compatible via OpenRouter, default base `https://openrouter.ai/api/v1`
+
+#### OpenRouter (DeepSeek v4 Pro example)
+
+OpenRouter has provider-specific env vars that override the generic ones:
+
+| Variable | Purpose |
+| --- | --- |
+| `CURSUS_OPENROUTER_API_KEY` | Preferred API key env (falls back to `CURSUS_PROVIDER_API_KEY`) |
+| `CURSUS_OPENROUTER_REFERER` | Optional `HTTP-Referer` header (recommended by OpenRouter for app attribution) |
+| `CURSUS_OPENROUTER_TITLE`   | Optional `X-Title` header (default `Cursus`) |
+
+`.env` example:
+
+```
+CURSUS_PROVIDER=openrouter
+CURSUS_MODEL=deepseek/deepseek-v4-pro
+CURSUS_PROVIDER_BASE_URL=https://openrouter.ai/api/v1
+CURSUS_OPENROUTER_API_KEY=sk-or-v1-...
+CURSUS_OPENROUTER_REFERER=https://cursus.local
+CURSUS_OPENROUTER_TITLE=Cursus
+CURSUS_LOCAL_ONLY=false
+```
+
+If the exact OpenRouter slug for DeepSeek v4 Pro differs from
+`deepseek/deepseek-v4-pro`, set `CURSUS_MODEL` to whatever OpenRouter's
+`/api/v1/models` listing returns — the value is passed through verbatim.
+
+The API key is **never** echoed in any response. `GET /cursus/provider` and
+`GET /status` only surface `api_key_set: true|false`.
+
+### Dux agents (per-agent provider/model)
+
+Cursus seeds five built-in Dux personas on first boot:
+
+| Agent id            | Role |
+| --- | --- |
+| `strategist`        | Main career strategist (weekly planning, target-role decisions) |
+| `resume-reviewer`   | Tailors resumes, flags weak bullets, suggests STAR rewrites |
+| `outreach-drafter`  | Cold emails, recruiter replies, cover letters |
+| `job-scout-analyst` | Posting fit/legitimacy/salary calibration |
+| `interview-coach`   | STAR stories, behavioral + technical prep |
+
+Each agent can run its own provider and model. Agents without an override
+fall back to the global `CURSUS_PROVIDER` / `CURSUS_MODEL` default.
+
+Endpoints:
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /cursus/dux/agents` | List the registry. `api_key` is never returned — `api_key_set` boolean is. |
+| `GET /cursus/dux/agents/:id` | One agent. |
+| `PATCH /cursus/dux/agents/:id` | Update provider/model/base_url/api_key/temperature/max_tokens/system_prompt/local_only/cloud_allowed/fallback_provider/fallback_model/enabled. Rejects unknown providers and local-only contradictions. |
+| `POST /cursus/dux/agents/:id/chat` | Chat as this specific agent. Velum runs first; receipts include `dux_agent_id`. |
+| `POST /cursus/dux/chat` | Original endpoint. Accepts optional `agent_id` in body. |
+
+Example: route the strategist to OpenRouter DeepSeek v4 Pro, keep
+resume-reviewer on a local model, force outreach-drafter local-only:
+
+```bash
+TOK="..."  # CURSUS_AUTH_TOKEN if running over Tailscale; omit Authorization on loopback
+
+curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/strategist \
+  -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
+  -d '{"provider":"openrouter","model":"deepseek/deepseek-v4-pro","api_key":"sk-or-...","base_url":"https://openrouter.ai/api/v1","temperature":0.4}'
+
+curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/resume-reviewer \
+  -H 'content-type: application/json' \
+  -d '{"provider":"ollama","model":"llama3","local_only":true}'
+
+curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/outreach-drafter \
+  -H 'content-type: application/json' \
+  -d '{"cloud_allowed":false,"fallback_provider":"ollama","fallback_model":"llama3"}'
+```
+
+Per-agent guarantees:
+- Velum redacts user input before any provider sees it.
+- `local_only=true` on an agent + cloud provider → 400 at PATCH time.
+- `cloud_allowed=false` + cloud provider at call time → 403, or fallback if configured.
+- Global `CURSUS_LOCAL_ONLY=true` blocks setting any cloud provider on any agent.
+- `dux_agent_chat` receipts record agent_id + provider + model + local_mode + velum review state.
 
 ### Optional Squidley bridge
 
@@ -134,6 +216,58 @@ curl -s -X POST localhost:18815/cursus/dux/chat \
   -H 'content-type: application/json' \
   -d '{"message":"What should I focus on this week?"}' | jq .
 ```
+
+## Tailscale access (phone / iPad / other devices on your tailnet)
+
+Cursus refuses to start on a non-loopback interface without a token. Set both:
+
+```
+CURSUS_HOST=0.0.0.0
+CURSUS_PORT=18815
+CURSUS_AUTH_TOKEN=<paste-output-of:  openssl rand -hex 32 >
+CURSUS_REQUIRE_AUTH=true                 # require token even for loopback callers
+CURSUS_ALLOW_LOOPBACK_NO_AUTH=false      # belt-and-suspenders
+```
+
+Network exposure is auto-classified in `/status` as one of:
+- `loopback_only` — `127.0.0.1` / `::1`
+- `tailscale_reachable` — `100.64.0.0/10` (Tailscale CGNAT) or `0.0.0.0` (interpreted as "exposed beyond loopback; auth required")
+- `public_bind` — any other non-loopback IP
+
+Public endpoints (no token): `/health`, `/version`. All other endpoints
+require `Authorization: Bearer $CURSUS_AUTH_TOKEN` when `auth_required=true`.
+
+Get your Tailscale IP:
+
+```bash
+tailscale ip -4
+```
+
+From a phone or iPad on the same tailnet:
+
+```
+http://<tailscale-ip>:18815/health
+```
+
+```bash
+curl -H "Authorization: Bearer $CURSUS_AUTH_TOKEN" \
+  http://<tailscale-ip>:18815/status
+```
+
+Verify your setup:
+
+```bash
+CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
+  /mnt/ai/cursus/scripts/verify-tailscale-ready.sh
+```
+
+### Security guarantees
+
+1. The bind-time guard refuses to start a non-loopback service without a token.
+2. `/cursus/provider`, `/cursus/dux/agents`, `/cursus/receipts`, `/cursus/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
+3. API keys never appear in any GET — `api_key_set: true|false` only.
+4. Bearer comparison uses an exact match against `Bearer <token>` (no prefix tricks).
+5. CORS `*` is permitted by default; if you wire a browser UI, narrow `CURSUS_CORS_ORIGIN` accordingly.
 
 ## Migration: legacy path → canonical
 
