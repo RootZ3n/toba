@@ -1,6 +1,6 @@
 /**
- * Cursus Standalone — Database Layer
- * ===================================
+ * Toba — Database Layer
+ * =====================
  * Self-contained V1 + V2 DB classes. No external service dependencies.
  * V1: profile, experience, certifications, projects, skills, products, export
  * V2: campaigns, applications, resumes, outreach, dux sessions, dashboard,
@@ -15,7 +15,15 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 
 /** Current schema version — bump when adding tables/columns */
-export const CURSUS_SCHEMA_VERSION = 6;
+export const TOBA_SCHEMA_VERSION = 8;
+
+/**
+ * Work preference for a campaign.
+ * "any" is the **explicit** default for a freshly-created campaign — meaning
+ * "no constraint, surface remote, hybrid, and onsite alike." This is distinct
+ * from `null`, which means "not explicitly set; fall back to profile/onboarding/default".
+ */
+export type WorkPreference = "remote" | "hybrid" | "onsite" | "any";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +37,40 @@ export type DuxSessionType = "interview" | "checkin" | "role_assessment" | "disc
 export interface Campaign {
   id: string; name: string; target_role: string; phase: CampaignPhase;
   milestones: string; active: boolean; created_at: string;
+  // V7 strategy fields — all nullable so the effective-context resolver can
+  // distinguish "explicitly set on campaign" from "inherited / defaulted".
+  work_preference: WorkPreference | null;
+  preferred_locations: string | null;     // JSON array of strings
+  salary_min: number | null;
+  salary_max: number | null;
+  certifications: string | null;
+  years_experience_target: number | null;
+  notes: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * Per-field source for a resolved campaign value.
+ *  "campaign"   — explicitly set on the campaign row
+ *  "profile"    — inherited from cursus_profile / cursus_profile_v2
+ *  "onboarding" — inherited from cursus_onboarding
+ *  "default"    — no source set anywhere; hard-coded safe default
+ */
+export type PreferenceSource = "campaign" | "profile" | "onboarding" | "default";
+
+export interface SourcedValue<T> { value: T; source: PreferenceSource }
+
+export interface EffectiveCampaignContext {
+  campaign_id: string | null;
+  campaign_name: string | null;
+  target_roles:    SourcedValue<string[]>;
+  work_preference: SourcedValue<WorkPreference>;
+  locations:       SourcedValue<string[]>;
+  salary_min:      SourcedValue<number | null>;
+  salary_max:      SourcedValue<number | null>;
+  certifications:  SourcedValue<string | null>;
+  years_experience_target: SourcedValue<number | null>;
+  notes:           SourcedValue<string | null>;
 }
 
 export interface Application {
@@ -43,6 +85,10 @@ export interface Application {
 export interface Resume {
   id: string; profile_version: number | null; base_resume: string;
   tailored_for: string | null; created_at: string;
+  filename: string | null; uploaded_at: string | null; source: string | null;
+  mime: string | null; bytes: number | null; extracted_length: number | null;
+  velum_reviewed: number | null; velum_redacted: number | null;
+  velum_fields_redacted: string | null; summary: string | null;
 }
 
 export interface Outreach {
@@ -100,7 +146,7 @@ export interface Receipt {
 
 // ── Dux agent registry ──────────────────────────────────────────────────────
 // Per-agent provider/model overrides. Null fields fall back to the global
-// Cursus default provider config.
+// Toba default provider config.
 
 export interface DuxAgent {
   id: string;                  // kebab-case agent id, e.g. "strategist"
@@ -185,16 +231,14 @@ export interface VelumReviewResult {
   output: string;
 }
 
-// Provider config
-export interface CursusProviderConfig {
+export interface TobaProviderConfig {
   provider: string;
   model: string;
   api_base?: string;
   local: boolean;
 }
 
-// Cursus status
-export interface CursusStatus {
+export interface TobaStatus {
   mode: "standalone";
   bridge_enabled: boolean;
   port: number;
@@ -258,7 +302,7 @@ export interface CampaignAnalytics {
 }
 
 // V1 types
-export interface CursusProfile {
+export interface TobaProfile {
   id: number;
   name: string | null;
   email?: string | null;
@@ -279,31 +323,31 @@ export interface CursusProfile {
   updated_at: string;
 }
 
-export interface CursusExperience {
+export interface TobaExperience {
   id: number; company: string; role: string; start_date: string;
   end_date: string | null; description: string; highlights: string[];
   is_current: boolean;
 }
 
-export interface CursusCertification {
+export interface TobaCertification {
   id: number; name: string; issuer: string;
   status: "complete" | "in_progress" | "planned";
   date_completed: string | null; notes: string;
 }
 
-export interface CursusProject {
+export interface TobaProject {
   id: number; name: string; tagline: string; description: string;
   tech_stack: string[]; status: "active" | "complete" | "vision";
   portfolio_worthy: boolean; resume_bullet: string;
   archivum_entry_id: string | null;
 }
 
-export interface CursusSkill {
+export interface TobaSkill {
   id: number; category: string; skill: string;
   level: "expert" | "proficient" | "familiar";
 }
 
-export interface CursusProduct {
+export interface TobaProduct {
   id: number; name: string; tagline: string | null;
   problem_solved: string | null; target_market: string | null;
   status: "live" | "beta" | "planned"; tier: "free" | "setup-fee" | "platform";
@@ -313,7 +357,7 @@ export interface CursusProduct {
 
 // ── V1 Database ──────────────────────────────────────────────────────────────
 
-export class CursusV1DB {
+export class TobaV1DB {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private db: any;
 
@@ -333,7 +377,7 @@ export class CursusV1DB {
   private stampVersion(): void {
     this.db.prepare(
       "INSERT INTO cursus_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(String(CURSUS_SCHEMA_VERSION));
+    ).run(String(TOBA_SCHEMA_VERSION));
   }
 
   getSchemaVersion(): number {
@@ -397,14 +441,14 @@ export class CursusV1DB {
     );
   }
 
-  getProfile(): CursusProfile {
-    const row = this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as CursusProfile | undefined;
+  getProfile(): TobaProfile {
+    const row = this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as TobaProfile | undefined;
     if (row) return row;
     this.seedIfEmpty();
-    return this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as CursusProfile;
+    return this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as TobaProfile;
   }
 
-  updateProfile(patch: Partial<Omit<CursusProfile, "id">>): CursusProfile {
+  updateProfile(patch: Partial<Omit<TobaProfile, "id">>): TobaProfile {
     const allowed = [
       "name", "email", "phone", "title", "summary", "location",
       "work_preference", "preferred_locations", "salary_min", "salary_max",
@@ -426,7 +470,7 @@ export class CursusV1DB {
     return this.getProfile();
   }
 
-  clearProfile(): CursusProfile {
+  clearProfile(): TobaProfile {
     const now = new Date().toISOString();
     this.db.prepare(`
       UPDATE cursus_profile SET
@@ -460,22 +504,22 @@ export class CursusV1DB {
     return this.getProfile();
   }
 
-  listExperience(): CursusExperience[] {
-    const rows = this.db.prepare("SELECT * FROM cursus_experience ORDER BY is_current DESC, start_date DESC").all() as Array<CursusExperience & { highlights: string }>;
+  listExperience(): TobaExperience[] {
+    const rows = this.db.prepare("SELECT * FROM cursus_experience ORDER BY is_current DESC, start_date DESC").all() as Array<TobaExperience & { highlights: string }>;
     return rows.map(r => ({ ...r, highlights: JSON.parse(r.highlights || "[]"), is_current: !!r.is_current }));
   }
 
-  addExperience(e: Omit<CursusExperience, "id">): CursusExperience {
+  addExperience(e: Omit<TobaExperience, "id">): TobaExperience {
     const r = this.db.prepare("INSERT INTO cursus_experience (company, role, start_date, end_date, description, highlights, is_current) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
       e.company, e.role, e.start_date, e.end_date ?? null, e.description, JSON.stringify(e.highlights ?? []), e.is_current ? 1 : 0);
     return { ...e, id: Number(r.lastInsertRowid) };
   }
 
-  listCertifications(): CursusCertification[] {
-    return this.db.prepare("SELECT * FROM cursus_certifications ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END").all() as CursusCertification[];
+  listCertifications(): TobaCertification[] {
+    return this.db.prepare("SELECT * FROM cursus_certifications ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END").all() as TobaCertification[];
   }
 
-  updateCertification(id: number, patch: Partial<Omit<CursusCertification, "id">>): CursusCertification | null {
+  updateCertification(id: number, patch: Partial<Omit<TobaCertification, "id">>): TobaCertification | null {
     const fields: string[] = [];
     const vals: Record<string, unknown> = { id };
     if (patch.status !== undefined)         { fields.push("status = @status");                   vals.status = patch.status; }
@@ -483,39 +527,39 @@ export class CursusV1DB {
     if (patch.notes !== undefined)          { fields.push("notes = @notes");                     vals.notes = patch.notes; }
     if (fields.length === 0) return null;
     this.db.prepare(`UPDATE cursus_certifications SET ${fields.join(", ")} WHERE id = @id`).run(vals);
-    return this.db.prepare("SELECT * FROM cursus_certifications WHERE id = ?").get(id) as CursusCertification;
+    return this.db.prepare("SELECT * FROM cursus_certifications WHERE id = ?").get(id) as TobaCertification;
   }
 
-  listProjects(): CursusProject[] {
-    const rows = this.db.prepare("SELECT * FROM cursus_projects ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'complete' THEN 1 ELSE 2 END").all() as Array<CursusProject & { tech_stack: string }>;
+  listProjects(): TobaProject[] {
+    const rows = this.db.prepare("SELECT * FROM cursus_projects ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'complete' THEN 1 ELSE 2 END").all() as Array<TobaProject & { tech_stack: string }>;
     return rows.map(r => ({ ...r, tech_stack: JSON.parse(r.tech_stack || "[]"), portfolio_worthy: !!r.portfolio_worthy }));
   }
 
-  addProject(p: Omit<CursusProject, "id">): CursusProject {
+  addProject(p: Omit<TobaProject, "id">): TobaProject {
     const r = this.db.prepare("INSERT INTO cursus_projects (name, tagline, description, tech_stack, status, portfolio_worthy, resume_bullet, archivum_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
       p.name, p.tagline, p.description, JSON.stringify(p.tech_stack ?? []), p.status, p.portfolio_worthy ? 1 : 0, p.resume_bullet, p.archivum_entry_id ?? null);
     return { ...p, id: Number(r.lastInsertRowid) };
   }
 
-  listSkills(): CursusSkill[] {
-    return this.db.prepare("SELECT * FROM cursus_skills ORDER BY category, CASE level WHEN 'expert' THEN 0 WHEN 'proficient' THEN 1 ELSE 2 END").all() as CursusSkill[];
+  listSkills(): TobaSkill[] {
+    return this.db.prepare("SELECT * FROM cursus_skills ORDER BY category, CASE level WHEN 'expert' THEN 0 WHEN 'proficient' THEN 1 ELSE 2 END").all() as TobaSkill[];
   }
 
-  listProducts(): CursusProduct[] {
-    return this.db.prepare("SELECT * FROM cursus_products ORDER BY CASE status WHEN 'live' THEN 0 WHEN 'beta' THEN 1 ELSE 2 END").all() as CursusProduct[];
+  listProducts(): TobaProduct[] {
+    return this.db.prepare("SELECT * FROM cursus_products ORDER BY CASE status WHEN 'live' THEN 0 WHEN 'beta' THEN 1 ELSE 2 END").all() as TobaProduct[];
   }
 
-  getProduct(id: number): CursusProduct | null {
-    return (this.db.prepare("SELECT * FROM cursus_products WHERE id = ?").get(id) as CursusProduct) ?? null;
+  getProduct(id: number): TobaProduct | null {
+    return (this.db.prepare("SELECT * FROM cursus_products WHERE id = ?").get(id) as TobaProduct) ?? null;
   }
 
-  addProduct(p: Omit<CursusProduct, "id">): CursusProduct {
+  addProduct(p: Omit<TobaProduct, "id">): TobaProduct {
     const r = this.db.prepare("INSERT INTO cursus_products (name, tagline, problem_solved, target_market, status, tier, origin_date, github_url, demo_url, price_range, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
       p.name, p.tagline, p.problem_solved, p.target_market, p.status, p.tier, p.origin_date, p.github_url, p.demo_url, p.price_range, p.notes);
     return { ...p, id: Number(r.lastInsertRowid) };
   }
 
-  updateProduct(id: number, patch: Partial<Omit<CursusProduct, "id">>): CursusProduct | null {
+  updateProduct(id: number, patch: Partial<Omit<TobaProduct, "id">>): TobaProduct | null {
     const fields: string[] = [];
     const vals: Record<string, unknown> = { id };
     for (const [key, value] of Object.entries(patch)) {
@@ -641,7 +685,7 @@ export class CursusV1DB {
 
 // ── V2 Database ──────────────────────────────────────────────────────────────
 
-export class CursusV2DB {
+export class TobaV2DB {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private db: any;
 
@@ -661,7 +705,7 @@ export class CursusV2DB {
     this.db.exec("CREATE TABLE IF NOT EXISTS cursus_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     this.db.prepare(
       "INSERT INTO cursus_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    ).run(String(CURSUS_SCHEMA_VERSION));
+    ).run(String(TOBA_SCHEMA_VERSION));
   }
 
   getSchemaVersion(): number {
@@ -729,7 +773,17 @@ export class CursusV2DB {
         profile_version  INTEGER,
         base_resume      TEXT NOT NULL,
         tailored_for     TEXT,
-        created_at       TEXT NOT NULL
+        created_at       TEXT NOT NULL,
+        filename         TEXT,
+        uploaded_at      TEXT,
+        source           TEXT,
+        mime             TEXT,
+        bytes            INTEGER,
+        extracted_length INTEGER,
+        velum_reviewed   INTEGER,
+        velum_redacted   INTEGER,
+        velum_fields_redacted TEXT,
+        summary          TEXT
       );
 
       CREATE TABLE IF NOT EXISTS cursus_outreach (
@@ -944,6 +998,41 @@ export class CursusV2DB {
       VALUES (?, ?, ?, 1, ?, ?, ?)
     `);
     for (const a of seedAgents) insertAgent.run(a.id, a.display_name, a.role, a.system_prompt ?? null, now, now);
+
+    // ── Schema V7: editable campaign strategy fields ────────────────────────
+    // Each column is nullable so the resolver can distinguish "explicitly set
+    // on the campaign" from "inherited / default". Importantly, no default
+    // is "remote" — fresh campaigns inherit nothing; the resolver returns "any".
+    const campaignColsV7 = [
+      "ALTER TABLE cursus_campaigns ADD COLUMN work_preference TEXT",                  // remote | hybrid | onsite | any | NULL
+      "ALTER TABLE cursus_campaigns ADD COLUMN preferred_locations TEXT",              // JSON array of strings
+      "ALTER TABLE cursus_campaigns ADD COLUMN salary_min INTEGER",
+      "ALTER TABLE cursus_campaigns ADD COLUMN salary_max INTEGER",
+      "ALTER TABLE cursus_campaigns ADD COLUMN certifications TEXT",
+      "ALTER TABLE cursus_campaigns ADD COLUMN years_experience_target INTEGER",
+      "ALTER TABLE cursus_campaigns ADD COLUMN notes TEXT",
+      "ALTER TABLE cursus_campaigns ADD COLUMN updated_at TEXT",
+    ];
+    for (const sql of campaignColsV7) {
+      try { this.db.exec(sql); } catch { /* already exists */ }
+    }
+
+    // ── Schema V8: resume upload metadata + safe summaries ────────────────
+    const resumeColsV8 = [
+      "ALTER TABLE cursus_resumes ADD COLUMN filename TEXT",
+      "ALTER TABLE cursus_resumes ADD COLUMN uploaded_at TEXT",
+      "ALTER TABLE cursus_resumes ADD COLUMN source TEXT",
+      "ALTER TABLE cursus_resumes ADD COLUMN mime TEXT",
+      "ALTER TABLE cursus_resumes ADD COLUMN bytes INTEGER",
+      "ALTER TABLE cursus_resumes ADD COLUMN extracted_length INTEGER",
+      "ALTER TABLE cursus_resumes ADD COLUMN velum_reviewed INTEGER",
+      "ALTER TABLE cursus_resumes ADD COLUMN velum_redacted INTEGER",
+      "ALTER TABLE cursus_resumes ADD COLUMN velum_fields_redacted TEXT",
+      "ALTER TABLE cursus_resumes ADD COLUMN summary TEXT",
+    ];
+    for (const sql of resumeColsV8) {
+      try { this.db.exec(sql); } catch { /* already exists */ }
+    }
   }
 
   // ── Onboarding ────────────────────────────────────────────────────────────
@@ -1044,19 +1133,136 @@ export class CursusV2DB {
     return this.getCampaign(id)!;
   }
 
-  updateCampaign(id: string, patch: Partial<Pick<Campaign, "name" | "target_role" | "phase" | "milestones" | "active">>): Campaign | null {
+  /**
+   * Partial update. Only allow-listed keys are persisted; unknown keys are
+   * ignored. A key present in `patch` with value `null` is interpreted as
+   * "clear that override" (back to inherited/default).
+   */
+  updateCampaign(id: string, patch: Partial<Omit<Campaign, "id" | "created_at" | "updated_at">>): Campaign | null {
+    const ALLOWED = new Set([
+      "name", "target_role", "phase", "milestones", "active",
+      // V7 strategy fields
+      "work_preference", "preferred_locations", "salary_min", "salary_max",
+      "certifications", "years_experience_target", "notes",
+    ]);
     const fields: string[] = [];
     const values: unknown[] = [];
     for (const [k, v] of Object.entries(patch)) {
-      if (["name", "target_role", "phase", "milestones", "active"].includes(k)) {
-        fields.push(`${k} = ?`);
-        values.push(k === "active" ? (v ? 1 : 0) : v);
-      }
+      if (!ALLOWED.has(k)) continue;
+      fields.push(`${k} = ?`);
+      if (k === "active") values.push(v ? 1 : 0);
+      else if (k === "preferred_locations" && Array.isArray(v)) values.push(JSON.stringify(v));
+      else if (v === undefined) values.push(null);
+      else values.push(v as unknown);
     }
     if (fields.length === 0) return this.getCampaign(id);
+    fields.push("updated_at = ?");
+    values.push(new Date().toISOString());
     values.push(id);
     this.db.prepare(`UPDATE cursus_campaigns SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getCampaign(id);
+  }
+
+  /**
+   * Resolve campaign strategy fields with per-field source tracing.
+   * Order: explicit campaign value → profile_v2/profile → onboarding → hard default.
+   *
+   * Returns `work_preference: { value: "any", source: "default" }` when no layer
+   * sets a preference — NEVER assumes "remote" silently.
+   */
+  effectiveCampaignContext(campaignId?: string | null, v1?: { getProfile(): { name?: string | null; title?: string | null; location?: string | null; summary?: string | null } | null }): EffectiveCampaignContext {
+    const camp = campaignId ? this.getCampaign(campaignId) : this.getActiveCampaign();
+    const onb  = this.getOnboarding();
+    const pv2  = this.getProfileV2();
+    const profile = v1?.getProfile?.() ?? null;
+
+    // ── target_roles ──
+    const targetFromCampaign = camp?.target_role
+      ? camp.target_role.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean)
+      : [];
+    const targetFromProfileV2 = (() => {
+      const raw = pv2 && typeof (pv2 as { target_roles?: unknown }).target_roles === "string" ? (pv2 as { target_roles: string }).target_roles : null;
+      if (!raw) return [];
+      try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr.filter(Boolean) : []; }
+      catch { return []; }
+    })();
+    const targetFromOnboarding = onb?.preferred_titles
+      ? onb.preferred_titles.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean)
+      : [];
+    let target_roles: SourcedValue<string[]>;
+    if (targetFromCampaign.length > 0)       target_roles = { value: targetFromCampaign,   source: "campaign" };
+    else if (targetFromProfileV2.length > 0) target_roles = { value: targetFromProfileV2,  source: "profile" };
+    else if (targetFromOnboarding.length > 0) target_roles = { value: targetFromOnboarding, source: "onboarding" };
+    else                                      target_roles = { value: [],                   source: "default" };
+
+    // ── work_preference ──
+    // Validate any string value against our enum so we never surface "yes"/"true" garbage.
+    const validWP = (s: string | null | undefined): WorkPreference | null => {
+      if (!s) return null;
+      const v = s.toLowerCase();
+      return (v === "remote" || v === "hybrid" || v === "onsite" || v === "any") ? v : null;
+    };
+    const wpFromCampaign   = validWP(camp?.work_preference ?? null);
+    const wpFromOnboarding = validWP(onb?.work_preference ?? null);
+    let work_preference: SourcedValue<WorkPreference>;
+    if (wpFromCampaign)        work_preference = { value: wpFromCampaign,   source: "campaign" };
+    else if (wpFromOnboarding) work_preference = { value: wpFromOnboarding, source: "onboarding" };
+    else                       work_preference = { value: "any",            source: "default" };
+
+    // ── locations ──
+    const locsFromCampaign = (() => {
+      if (!camp?.preferred_locations) return [];
+      try { const arr = JSON.parse(camp.preferred_locations); return Array.isArray(arr) ? arr.filter(Boolean) : []; }
+      catch { return []; }
+    })();
+    const locsFromProfile = profile?.location ? [profile.location] : [];
+    const locsFromOnboarding = onb?.preferred_locations
+      ? onb.preferred_locations.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean)
+      : [];
+    let locations: SourcedValue<string[]>;
+    if (locsFromCampaign.length > 0)        locations = { value: locsFromCampaign,   source: "campaign" };
+    else if (locsFromProfile.length > 0)    locations = { value: locsFromProfile,    source: "profile" };
+    else if (locsFromOnboarding.length > 0) locations = { value: locsFromOnboarding, source: "onboarding" };
+    else                                     locations = { value: [],                source: "default" };
+
+    // ── salary range ──
+    const salary_min: SourcedValue<number | null> =
+      camp?.salary_min != null ? { value: camp.salary_min, source: "campaign" }
+      : onb?.salary_min != null ? { value: onb.salary_min, source: "onboarding" }
+      : { value: null, source: "default" };
+    const salary_max: SourcedValue<number | null> =
+      camp?.salary_max != null ? { value: camp.salary_max, source: "campaign" }
+      : onb?.salary_max != null ? { value: onb.salary_max, source: "onboarding" }
+      : { value: null, source: "default" };
+
+    // ── certifications ──
+    const certifications: SourcedValue<string | null> =
+      camp?.certifications ? { value: camp.certifications, source: "campaign" }
+      : onb?.certifications ? { value: onb.certifications, source: "onboarding" }
+      : { value: null, source: "default" };
+
+    // ── years_experience_target ──
+    const years_experience_target: SourcedValue<number | null> =
+      camp?.years_experience_target != null ? { value: camp.years_experience_target, source: "campaign" }
+      : onb?.years_experience != null ? { value: onb.years_experience, source: "onboarding" }
+      : { value: null, source: "default" };
+
+    // ── notes ──
+    const notes: SourcedValue<string | null> =
+      camp?.notes ? { value: camp.notes, source: "campaign" } : { value: null, source: "default" };
+
+    return {
+      campaign_id:   camp?.id ?? null,
+      campaign_name: camp?.name ?? null,
+      target_roles,
+      work_preference,
+      locations,
+      salary_min,
+      salary_max,
+      certifications,
+      years_experience_target,
+      notes,
+    };
   }
 
   closeCampaign(id: string): Campaign | null {
@@ -1103,7 +1309,7 @@ export class CursusV2DB {
   }): Application {
     const id = randomUUID();
     const now = new Date().toISOString();
-    const fp = CursusV2DB.jobFingerprint(data.company, data.role, data.url);
+    const fp = TobaV2DB.jobFingerprint(data.company, data.role, data.url);
     this.db.prepare(
       "INSERT INTO cursus_applications (id, campaign_id, company, role, url, salary_range, match_score, notes, source, location, remote, fingerprint, lane_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
@@ -1311,10 +1517,31 @@ export class CursusV2DB {
     return this.db.prepare("SELECT * FROM cursus_resumes ORDER BY created_at DESC").all() as Resume[];
   }
 
-  createResume(baseResume: string, profileVersion?: number, tailoredFor?: string): Resume {
+  createResume(baseResume: string, profileVersion?: number, tailoredFor?: string, meta: Partial<Pick<Resume,
+    "filename" | "uploaded_at" | "source" | "mime" | "bytes" | "extracted_length" |
+    "velum_reviewed" | "velum_redacted" | "velum_fields_redacted" | "summary"
+  >> = {}): Resume {
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO cursus_resumes (id, profile_version, base_resume, tailored_for, created_at) VALUES (?, ?, ?, ?, ?)").run(id, profileVersion ?? null, baseResume, tailoredFor ?? null, now);
+    this.db.prepare(`
+      INSERT INTO cursus_resumes (
+        id, profile_version, base_resume, tailored_for, created_at,
+        filename, uploaded_at, source, mime, bytes, extracted_length,
+        velum_reviewed, velum_redacted, velum_fields_redacted, summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, profileVersion ?? null, baseResume, tailoredFor ?? null, now,
+      meta.filename ?? null,
+      meta.uploaded_at ?? now,
+      meta.source ?? null,
+      meta.mime ?? null,
+      meta.bytes ?? null,
+      meta.extracted_length ?? baseResume.length,
+      meta.velum_reviewed ?? null,
+      meta.velum_redacted ?? null,
+      meta.velum_fields_redacted ?? null,
+      meta.summary ?? null,
+    );
     return this.db.prepare("SELECT * FROM cursus_resumes WHERE id = ?").get(id) as Resume;
   }
 
@@ -1828,3 +2055,8 @@ export class CursusV2DB {
     this.db.close();
   }
 }
+
+// ── Backward-compat aliases (Cursus → Toba transition) ──────────────────────
+// DB table names (cursus_*) are intentionally preserved as stable schema identifiers.
+export { TobaV1DB as CursusV1DB, TobaV2DB as CursusV2DB, TOBA_SCHEMA_VERSION as CURSUS_SCHEMA_VERSION };
+export type { TobaProfile as CursusProfile, TobaExperience as CursusExperience, TobaCertification as CursusCertification, TobaProject as CursusProject, TobaSkill as CursusSkill, TobaProduct as CursusProduct, TobaProviderConfig as CursusProviderConfig, TobaStatus as CursusStatus };

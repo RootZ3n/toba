@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>Cursus — Career Command Center</title>
+<title>Toba — Career Transformation Platform</title>
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
@@ -13,16 +13,14 @@
   <div class="brand">
     <span class="logo">▣</span>
     <div>
-      <h1>Cursus</h1>
-      <p class="sub">Career Command Center · standalone</p>
+      <h1>Toba</h1>
+      <p class="sub">Career Transformation Platform · standalone</p>
     </div>
   </div>
   <nav class="status-strip" aria-label="service status">
     <span class="chip" data-bind="status.service">service</span>
     <span class="chip" data-bind="status.exposure">net</span>
     <span class="chip" data-bind="status.provider">provider</span>
-    <span class="chip" data-bind="status.auth">auth</span>
-    <button id="authBtn" class="btn-ghost" title="Auth / token">⚿</button>
   </nav>
 </header>
 
@@ -40,31 +38,15 @@
     <a href="#receipts"   class="nav-item">∾ Receipts</a>
     <a href="#settings"   class="nav-item">⚙ Settings</a>
     <div class="nav-foot">
-      <span class="muted small" data-bind="status.version">cursus</span>
+      <span class="muted small" data-bind="status.version">toba</span>
       <a class="muted small" href="/api">/api map</a>
     </div>
   </aside>
 
   <main id="main" class="panel" aria-live="polite">
     <!-- views rendered by app.js -->
-    <section class="loading">Connecting to Cursus…</section>
+    <section class="loading">Connecting to Toba…</section>
   </main>
-</div>
-
-<!-- ── Auth modal ──────────────────────────────────────────────────── -->
-<div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-  <div class="modal-card">
-    <h2 id="authTitle">Auth required</h2>
-    <p class="muted">This Cursus instance requires a bearer token. Paste your <code>CURSUS_AUTH_TOKEN</code>.</p>
-    <input id="authInput" type="password" placeholder="Bearer token…" autocomplete="off" />
-    <p id="authErr" class="err" hidden></p>
-    <div class="row">
-      <button id="authSave" class="btn-primary">Save &amp; reconnect</button>
-      <button id="authClear" class="btn-ghost">Clear stored token</button>
-      <button id="authCancel" class="btn-ghost">Close</button>
-    </div>
-    <p class="muted small">Stored in this browser's <code>localStorage</code> only. Cursus never echoes the token in responses.</p>
-  </div>
 </div>
 
 <!-- ── Toast region ────────────────────────────────────────────────── -->

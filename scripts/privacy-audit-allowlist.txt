@@ -9,7 +9,7 @@ https://github\.com/
 https://www\.linkedin\.com/
 OPENROUTER_API_KEY_HERE
 \.env\.bak\.[0-9-]+
-cursus_auth_token
+toba_auth_token
 555-[0-9-]+
 405-555-9999
 4111 1111 1111 1111

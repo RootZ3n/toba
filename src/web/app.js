@@ -1,14 +1,12 @@
-/*  Cursus Career Command Center — frontend
- *  ----------------------------------------
- *  Vanilla JS SPA. Hash-routed. Talks to the local Cursus API.
- *  Auth: bearer token in localStorage["cursus_auth_token"], attached when set.
+/*  Toba Career Transformation Platform — frontend
+ *  ------------------------------------------------
+ *  Vanilla JS SPA. Hash-routed. Talks to the local Toba API.
  *  No external libs. Edit live; no build step.
  */
 
 "use strict";
 
 // ── State ────────────────────────────────────────────────────────────────
-const TOKEN_KEY = "cursus_auth_token";
 let serverStatus = null;
 let agentsCache  = null;
 
@@ -36,14 +34,8 @@ const fmtTime = (iso) => {
 };
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
 
-// ── Token / auth ─────────────────────────────────────────────────────────
-const getToken = () => localStorage.getItem(TOKEN_KEY) || "";
-const setToken = (t) => { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); };
-
 async function api(path, opts = {}) {
   const headers = { "accept": "application/json", ...(opts.headers || {}) };
-  const tok = getToken();
-  if (tok) headers["authorization"] = `Bearer ${tok}`;
   if (opts.body && !(opts.body instanceof FormData)) {
     headers["content-type"] = headers["content-type"] || "application/json";
     if (typeof opts.body !== "string") opts.body = JSON.stringify(opts.body);
@@ -60,6 +52,93 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read selected file"));
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function markdownInline(text) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function markdownToHtml(markdown) {
+  const lines = String(markdown || "").replace(/\r/g, "").split("\n");
+  const out = [];
+  let para = [];
+  let list = null;
+  let code = false;
+  let codeLines = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    out.push(`<p>${markdownInline(para.join(" ").trim())}</p>`);
+    para = [];
+  };
+  const flushList = () => {
+    if (!list) return;
+    out.push(`<${list.type}>${list.items.map(i => `<li>${markdownInline(i)}</li>`).join("")}</${list.type}>`);
+    list = null;
+  };
+  const flushCode = () => {
+    if (!codeLines.length) return;
+    out.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.trim().startsWith("```")) {
+      if (code) { flushCode(); code = false; }
+      else { flushPara(); flushList(); code = true; }
+      continue;
+    }
+    if (code) { codeLines.push(raw); continue; }
+
+    if (!line.trim()) {
+      flushPara();
+      flushList();
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushPara();
+      flushList();
+      const level = Math.min(4, heading[1].length + 2);
+      out.push(`<h${level}>${markdownInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const ordered = /^\d+\.\s+(.+)$/.exec(line);
+    const unordered = /^[-*]\s+(.+)$/.exec(line);
+    if (ordered || unordered) {
+      flushPara();
+      const type = ordered ? "ol" : "ul";
+      if (!list || list.type !== type) flushList();
+      if (!list) list = { type, items: [] };
+      list.items.push((ordered || unordered)[1]);
+      continue;
+    }
+
+    para.push(line.trim());
+  }
+  flushCode();
+  flushPara();
+  flushList();
+  return out.join("");
+}
+
 // ── Toast ────────────────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg, kind = "") {
@@ -71,50 +150,16 @@ function toast(msg, kind = "") {
   toastTimer = setTimeout(() => t.classList.add("hidden"), 4200);
 }
 
-// ── Auth modal ───────────────────────────────────────────────────────────
-function showAuthModal({ msg } = {}) {
-  $("#authErr").hidden = !msg;
-  $("#authErr").textContent = msg || "";
-  $("#authInput").value = "";
-  $("#authModal").classList.remove("hidden");
-  setTimeout(() => $("#authInput").focus(), 50);
-}
-function hideAuthModal() { $("#authModal").classList.add("hidden"); }
-
-$("#authBtn").addEventListener("click", () => showAuthModal());
-$("#authSave").addEventListener("click", async () => {
-  const tok = $("#authInput").value.trim();
-  if (!tok) return;
-  setToken(tok);
-  hideAuthModal();
-  await refreshStatus();
-  navigate(location.hash || "#dashboard");
-  toast("Token saved", "ok");
-});
-$("#authClear").addEventListener("click", () => {
-  setToken("");
-  hideAuthModal();
-  toast("Token cleared", "warn");
-  refreshStatus();
-});
-$("#authCancel").addEventListener("click", hideAuthModal);
-
 // ── Status chip refresh ──────────────────────────────────────────────────
 async function refreshStatus() {
   try {
     serverStatus = await api("/status");
     paintChips();
   } catch (err) {
-    if (err.status === 401) {
-      // /status should be public — if it isn't, the user is hitting an old build.
-      serverStatus = null;
-      paintChips({ authRequired: true });
-    } else {
-      toast(`Status error: ${err.message}`, "err");
-    }
+    toast(`Status error: ${err.message}`, "err");
   }
 }
-function paintChips(extra = {}) {
+function paintChips() {
   const setChip = (key, text, kind = "") => {
     const node = $(`[data-bind="${key}"]`);
     if (!node) return;
@@ -126,10 +171,7 @@ function paintChips(extra = {}) {
   setChip("status.exposure", s.network_exposure || "—",                          s.network_exposure === "loopback_only" ? "ok" : "cloud");
   setChip("status.provider", s.provider ? `${s.provider}/${s.model || "?"}` : "no provider",
                               s.provider_configured ? "ok" : (s.provider && s.provider !== "none" ? "warn" : ""));
-  const authNeed = extra.authRequired || s.auth_required;
-  setChip("status.auth",     authNeed ? (getToken() ? "token ✓" : "token req'd") : "open",
-                              authNeed ? (getToken() ? "ok" : "warn") : "");
-  setChip("status.version",  s.host ? `${s.host}:${s.port} · v${s.dux_agents ? "" : ""}schema${s._sv || ""}` : "cursus");
+  setChip("status.version",  s.host ? `${s.host}:${s.port} · v${s.dux_agents ? "" : ""}schema${s._sv || ""}` : "toba");
 }
 
 // ── Routing ──────────────────────────────────────────────────────────────
@@ -177,8 +219,8 @@ async function navigate(hash) {
 async function renderDashboard(root) {
   const [status, dashboard, receipts] = await Promise.allSettled([
     api("/status"),
-    api("/cursus/dashboard").catch(() => null),
-    api("/cursus/receipts?limit=8").catch(() => null),
+    api("/toba/dashboard").catch(() => null),
+    api("/toba/receipts?limit=8").catch(() => null),
   ]);
   const s = status.status === "fulfilled" ? status.value : {};
   const d = dashboard.status === "fulfilled" ? dashboard.value?.dashboard : null;
@@ -200,7 +242,6 @@ async function renderDashboard(root) {
     mkStat("Mode",           s.mode || "?"),
     mkStat("Bind",           s.host && s.port ? `${s.host}:${s.port}` : "?"),
     mkStat("Exposure",       s.network_exposure || "?"),
-    mkStat("Auth required",  s.auth_required ? "yes" : "no"),
     mkStat("Provider",       s.provider || "none"),
     mkStat("Model",          s.model || "—"),
     mkStat("Local-only",     s.local_only_mode ? "yes" : "no"),
@@ -234,8 +275,11 @@ async function renderDashboard(root) {
 // ── Dux Chat ─────────────────────────────────────────────────────────────
 async function renderDuxChat(root) {
   if (!agentsCache) {
-    try { agentsCache = await api("/cursus/dux/agents"); } catch (err) { agentsCache = { agents: [] }; }
+    try { agentsCache = await api("/toba/dux/agents"); } catch (err) { agentsCache = { agents: [] }; }
   }
+  const uploadedResumes = await api("/toba/resumes").then(r => r.resumes || []).catch(() => []);
+  const latestResume = uploadedResumes[0] || null;
+  const resumeContextDefault = !!latestResume && latestResume.velum_reviewed === 1;
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Dux Chat"));
   root.appendChild(el("p", { class: "muted" },
@@ -252,6 +296,12 @@ async function renderDuxChat(root) {
   const velumChk = el("label", { class: "row" },
     el("input", { type: "checkbox", id: "velumOn", checked: true, style: "width:auto;" }),
     el("span", { class: "small muted" }, "Velum on"));
+  const contextControls = el("div", { class: "row", style: "flex-wrap:wrap;" },
+    el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxProfile", checked: true, style: "width:auto;" }), "Include profile"),
+    el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxResume", checked: resumeContextDefault, style: "width:auto;" }), "Include resume"),
+    el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxCampaign", checked: true, style: "width:auto;" }), "Include active campaign"),
+    el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxApplications", checked: true, style: "width:auto;" }), "Include applications/jobs"),
+    el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxReceipts", style: "width:auto;" }), "Include recent receipts"));
   const clearBtn = el("button", { class: "btn-ghost", onclick: () => { log.innerHTML = ""; } }, "Clear");
   controls.append(agentSelect, velumChk, clearBtn);
 
@@ -265,7 +315,7 @@ async function renderDuxChat(root) {
   const sendBtn = el("button", { class: "btn-primary", type: "submit" }, "Send");
   form.append(ta, sendBtn);
 
-  shell.append(controls, log, form);
+  shell.append(controls, contextControls, log, form);
   root.appendChild(shell);
 
   ta.addEventListener("keydown", (e) => {
@@ -283,7 +333,7 @@ async function renderDuxChat(root) {
     log.scrollTop = log.scrollHeight;
 
     const agentId = agentSelect.value;
-    const url = agentId ? `/cursus/dux/agents/${agentId}/chat` : "/cursus/dux/chat";
+    const url = agentId ? `/toba/dux/agents/${agentId}/chat` : "/toba/dux/chat";
     const placeholder = el("div", { class: "chat-msg assistant" },
       el("div", { class: "who" }, agentId || "dux"),
       el("span", { class: "muted" }, "Thinking…"));
@@ -291,18 +341,44 @@ async function renderDuxChat(root) {
     log.scrollTop = log.scrollHeight;
 
     try {
-      const body = { message: msg, velum: $("#velumOn").checked };
+      const body = {
+        message: msg,
+        velum: $("#velumOn").checked,
+        include_context: {
+          profile: $("#ctxProfile").checked,
+          resume: $("#ctxResume").checked,
+          campaign: $("#ctxCampaign").checked,
+          applications: $("#ctxApplications").checked,
+          receipts: $("#ctxReceipts").checked,
+        },
+      };
       const res = await api(url, { method: "POST", body });
       placeholder.innerHTML = "";
       placeholder.appendChild(el("div", { class: "who" }, res.agent?.id || agentId || "dux"));
-      placeholder.appendChild(document.createTextNode(res.reply || ""));
+      placeholder.appendChild(el("div", { class: "markdown", html: markdownToHtml(res.reply || "") }));
       const metaBits = [];
       if (res.provider) metaBits.push(`${res.provider.provider}/${res.provider.model}${res.provider.local ? " · local" : " · cloud"}`);
       if (res.provider?.fallback_used) metaBits.push("fallback");
       if (res.velum?.reviewed) metaBits.push(`velum: ${res.velum.redacted ? `redacted [${(res.velum.fields_redacted||[]).join(",")}]` : "ok"}`);
+      if (res.context) {
+        metaBits.push(`profile:${res.context.profile_included ? "yes" : "no"}`);
+        metaBits.push(`resume:${res.context.resume_included ? "yes" : "no"}`);
+        metaBits.push(`campaign:${res.context.campaign_included ? "yes" : "no"}`);
+        metaBits.push(`apps:${res.context.applications_included ?? 0}`);
+        metaBits.push(`receipts:${res.context.receipts_included ?? 0}`);
+      }
       if (res.usage) metaBits.push(`tokens in=${res.usage.input_tokens ?? "?"} out=${res.usage.output_tokens ?? "?"}`);
       if (res.finish_reason) metaBits.push(res.finish_reason);
       placeholder.appendChild(el("div", { class: "meta" }, metaBits.join(" · ")));
+      if (res.context) {
+        placeholder.appendChild(el("div", { class: "meta" },
+          `Context: profile ${res.context.profile_included ? "included" : "off"}, ` +
+          `resume ${res.context.resume_included ? "included" : res.context.resume_available ? "off" : "missing"}, ` +
+          `campaign ${res.context.campaign_included ? "included" : "off"}, ` +
+          `${res.context.applications_included ?? 0} application(s), ` +
+          `${res.context.receipts_included ?? 0} receipt(s), ` +
+          `Velum ${res.context.velum_reviewed ? "reviewed" : "not reviewed"}`));
+      }
     } catch (err) {
       placeholder.classList.remove("assistant");
       placeholder.classList.add("system");
@@ -320,10 +396,10 @@ async function renderDuxChat(root) {
 // ── Profile / Resume ─────────────────────────────────────────────────────
 async function renderProfile(root) {
   const [profile, profileV2, onboarding, resumes] = await Promise.allSettled([
-    api("/cursus/profile"),
-    api("/cursus/profile/v2").catch(() => null),
-    api("/cursus/onboarding").catch(() => null),
-    api("/cursus/resumes").catch(() => null),
+    api("/toba/profile"),
+    api("/toba/profile/v2").catch(() => null),
+    api("/toba/onboarding").catch(() => null),
+    api("/toba/resumes").catch(() => null),
   ]);
   const p = profile.status === "fulfilled" ? profile.value?.profile : {};
   const p2 = profileV2.status === "fulfilled" ? profileV2.value?.profile || {} : {};
@@ -337,7 +413,7 @@ async function renderProfile(root) {
 
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Profile"));
-  root.appendChild(el("p", { class: "muted" }, "Edit exactly what Cursus knows about you. New installs start blank; resume uploads are Velum-reviewed before storage."));
+  root.appendChild(el("p", { class: "muted" }, "Edit exactly what Toba knows about you. New installs start blank; resume uploads are Velum-reviewed before storage."));
   if (incomplete) root.appendChild(el("div", { class: "banner warn" }, "Profile incomplete. No campaign, resume, target role, or personal profile data is set."));
 
   // Profile card
@@ -370,7 +446,7 @@ async function renderProfile(root) {
       el("button", { class: "btn-primary", type: "submit" }, "Save profile"),
       el("button", { class: "btn-warn", type: "button", onclick: async () => {
         if (!confirm("Clear profile and onboarding data? Resumes, campaigns, applications, and receipts are not deleted by this button.")) return;
-        try { await api("/cursus/profile/clear", { method: "POST" }); toast("Profile cleared", "warn"); navigate("#profile"); }
+        try { await api("/toba/profile/clear", { method: "POST" }); toast("Profile cleared", "warn"); navigate("#profile"); }
         catch (err) { toast(err.message, "err"); }
       } }, "Reset / clear profile")));
   profForm.addEventListener("submit", async (e) => {
@@ -378,7 +454,7 @@ async function renderProfile(root) {
     const fd = new FormData(profForm);
     const patch = Object.fromEntries(fd.entries());
     try {
-      const saved = await api("/cursus/profile", { method: "PATCH", body: patch });
+      const saved = await api("/toba/profile", { method: "PATCH", body: patch });
       $("#profileSavedState").textContent = `Last saved: ${fmtTime(saved.profile?.updated_at || new Date().toISOString())}`;
       toast("Profile saved", "ok");
     } catch (err) { toast(err.message, "err"); }
@@ -403,8 +479,9 @@ async function renderProfile(root) {
   // Resume upload card
   const upForm = el("form", { class: "card" },
     el("h3", {}, "Resume upload"),
-    el("p", { class: "muted small" }, "Paste resume text below. Velum redacts SSN, email, phone, address, and credit-card patterns before storage."),
-    el("textarea", { name: "text", placeholder: "Paste resume text… (min 20 chars)" }),
+    el("p", { class: "muted small" }, "Choose a PDF, DOCX, RTF, TXT, or Markdown resume. Velum redacts SSN, email, phone, address, and credit-card patterns before storage."),
+    el("input", { name: "resume_file", type: "file", accept: ".pdf,.docx,.rtf,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,application/rtf" }),
+    el("textarea", { name: "text", placeholder: "Optional fallback: paste resume text… (min 20 chars)" }),
     el("label", {}, "Tailored for (role)"),
     el("input", { name: "tailored_for", placeholder: "e.g. Senior SRE @ Acme" }),
     el("div", { class: "btn-row", style: "margin-top:.6rem;" },
@@ -415,14 +492,29 @@ async function renderProfile(root) {
   upForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(upForm);
-    const body = Object.fromEntries(fd.entries());
-    if (!body.text || body.text.length < 20) { toast("Resume text too short (need ≥20 chars)", "warn"); return; }
+    const file = upForm.elements.resume_file?.files?.[0] || null;
+    const body = {
+      text: String(fd.get("text") || ""),
+      tailored_for: String(fd.get("tailored_for") || ""),
+    };
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { toast("Resume file is too large (max 5 MB)", "warn"); return; }
+      body.file = {
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        base64: await fileToBase64(file),
+      };
+    } else if (!body.text || body.text.length < 20) {
+      toast("Choose a resume file or paste at least 20 characters", "warn");
+      return;
+    }
     try {
-      const res = await api("/cursus/resumes/upload", { method: "POST", body });
+      const res = await api("/toba/resumes/upload", { method: "POST", body });
       resultBox.innerHTML = "";
       const v = res.velum || {};
+      const fileNote = res.upload?.filename ? ` from ${res.upload.filename}` : "";
       resultBox.appendChild(el("div", { class: "banner ok" },
-        `Saved as resume #${res.resume?.id?.slice(0,8) || "?"}. Velum reviewed (${v.redacted ? `redacted: ${(v.fields_redacted||[]).join(", ") || "—"}` : "no redaction needed"}).`));
+        `Saved${fileNote} as resume #${res.resume?.id?.slice(0,8) || "?"}. Velum reviewed (${v.redacted ? `redacted: ${(v.fields_redacted||[]).join(", ") || "—"}` : "no redaction needed"}).`));
       toast("Resume uploaded", "ok");
       setTimeout(() => navigate("#profile"), 800);
     } catch (err) { toast(err.message, "err"); }
@@ -434,11 +526,18 @@ async function renderProfile(root) {
   if (rs.length === 0) {
     listCard.appendChild(el("div", { class: "empty" }, "No resumes uploaded yet."));
   } else {
+    const latest = rs[0];
+    listCard.appendChild(el("div", { class: "banner ok" },
+      `Latest resume: ${latest.filename || latest.tailored_for || "pasted text"} · uploaded ${fmtTime(latest.uploaded_at || latest.created_at)} · ` +
+      `Velum ${latest.velum_reviewed === 1 ? "reviewed" : "unknown"}${latest.velum_redacted === 1 ? `, redacted ${(() => { try { return JSON.parse(latest.velum_fields_redacted || "[]").join(", "); } catch { return ""; } })()}` : ""}`));
     for (const r of rs.slice(0, 10)) {
       listCard.appendChild(el("div", { class: "list-row" },
-        el("div", {}, r.tailored_for || el("span", { class: "muted" }, "(no role)")),
+        el("div", {},
+          el("strong", {}, r.filename || r.tailored_for || "(pasted resume)"),
+          el("div", { class: "muted small" }, r.summary ? r.summary.slice(0, 180) : `${r.extracted_length || r.base_resume?.length || 0} chars parsed`)),
         el("div", { class: "meta" },
           el("span", { class: "tag" }, `#${(r.id || "").slice(0, 8)}`),
+          el("span", { class: "tag ok" }, r.velum_reviewed === 1 ? "Velum reviewed" : "Velum unknown"),
           el("span", {}, fmtTime(r.created_at)))));
     }
   }
@@ -454,8 +553,8 @@ function mkRow(k, v) {
 async function renderAgents(root) {
   let providers;
   const [agents, providerStatus] = await Promise.allSettled([
-    api("/cursus/dux/agents"),
-    api("/cursus/provider"),
+    api("/toba/dux/agents"),
+    api("/toba/provider"),
   ]);
   if (agents.status !== "fulfilled") throw new Error("Could not load agents");
   agentsCache = agents.value;
@@ -522,7 +621,7 @@ function agentCard(a, providers) {
     // Don't send empty api_key — that would wipe stored credentials.
     if (!patch.api_key) delete patch.api_key;
     try {
-      const res = await api(`/cursus/dux/agents/${a.id}`, { method: "PATCH", body: patch });
+      const res = await api(`/toba/dux/agents/${a.id}`, { method: "PATCH", body: patch });
       toast(`Agent "${a.id}" saved`, "ok");
       // Update local card with sanitized response (drops api_key field)
       const refreshed = res.agent;
@@ -536,114 +635,288 @@ function agentCard(a, providers) {
 }
 
 // ── Campaigns ────────────────────────────────────────────────────────────
+// Render a small "source badge" — explains where an effective value came from.
+function sourceBadge(source) {
+  const labels = {
+    campaign:   { text: "from campaign",   class: "ok"   },
+    profile:    { text: "from profile",    class: "cloud"},
+    onboarding: { text: "from onboarding", class: "cloud"},
+    default:    { text: "default — not set", class: "warn" },
+  };
+  const meta = labels[source] || { text: source, class: "" };
+  return el("span", { class: `tag ${meta.class}`, title: `Source: ${source}` }, meta.text);
+}
+
 async function renderCampaigns(root) {
-  const camps = (await api("/cursus/campaigns")).campaigns || [];
+  const camps = (await api("/toba/campaigns")).campaigns || [];
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Campaigns"));
-  root.appendChild(el("p", { class: "muted" }, "One active campaign at a time. Close it to start a new one."));
+  root.appendChild(el("p", { class: "muted" },
+    "One active campaign at a time. Campaigns are strategy objects — every field is editable, and the ",
+    el("strong", {}, "effective"), " context below shows ", el("em", {}, "where each value came from"),
+    " (campaign / profile / onboarding / default)."));
 
   const active = camps.find(c => c.active);
+
+  // ── Active campaign editor with source-traced effective context ──────────
   if (active) {
-    const card = el("div", { class: "card" },
-      el("h3", {}, "Active campaign"),
-      el("div", { class: "grid cols3" },
-        mkRow("Name", active.name),
-        mkRow("Target role", active.target_role),
-        mkRow("Phase", active.phase),
-        mkRow("Started", fmtTime(active.created_at))),
-      el("div", { class: "btn-row", style: "margin-top:.8rem;" },
-        el("button", { class: "btn-warn", onclick: async () => {
-          if (!confirm(`Close campaign "${active.name}"?`)) return;
-          try { await api(`/cursus/campaigns/${active.id}/close`, { method: "POST" }); toast("Campaign closed", "ok"); navigate("#campaigns"); }
-          catch (err) { toast(err.message, "err"); }
-        } }, "Close campaign"),
-        el("a", { class: "btn-ghost", href: `#apps?campaign_id=${active.id}` }, "View applications")),
-    );
-    // Analytics
+    // Fetch the full record + sources
+    let detail;
+    try { detail = await api(`/toba/campaigns/${active.id}`); }
+    catch (err) { toast(`Failed to load campaign: ${err.message}`, "err"); detail = { campaign: active, effective_context: null }; }
+    const c = detail.campaign;
+    const eff = detail.effective_context;
+
+    // Parse JSON-encoded preferred_locations off the raw row
+    let storedLocations = [];
+    try { storedLocations = c.preferred_locations ? JSON.parse(c.preferred_locations) : []; } catch { storedLocations = []; }
+
+    const form = el("form", { class: "card" });
+    form.appendChild(el("h3", {}, "Active campaign — editable"));
+
+    // ── Strategy form ──
+    const wpRadios = el("div", { class: "row", style: "flex-wrap:wrap;" });
+    for (const opt of ["any", "remote", "hybrid", "onsite"]) {
+      const radio = el("label", { class: "row", style: "background:var(--bg-2); border:1px solid var(--line); padding:.35rem .65rem; border-radius:5px; cursor:pointer;" },
+        el("input", { type: "radio", name: "work_preference", value: opt, checked: (c.work_preference || "") === opt, style: "width:auto; margin:0;" }),
+        el("span", {}, opt));
+      wpRadios.appendChild(radio);
+    }
+    const clearWp = el("button", { type: "button", class: "btn-ghost", onclick: () => {
+      Array.from(form.querySelectorAll('input[name="work_preference"]')).forEach(r => r.checked = false);
+      markDirty();
+    } }, "clear (use inherited)");
+    wpRadios.appendChild(clearWp);
+
+    form.appendChild(el("div", { class: "form-grid" },
+      el("label", {}, "Name"),                        el("input", { name: "name", value: c.name }),
+      el("label", {}, "Phase"),                       el("select", { name: "phase" },
+        ...["research", "applying", "interviewing", "negotiating", "closed"].map(p =>
+          el("option", { value: p, selected: c.phase === p }, p))),
+      el("label", { class: "full" }, "Target roles (comma-separated)"),
+      el("input", { name: "target_role", class: "full", value: c.target_role || "", placeholder: "e.g. MSP Technician, Desktop Support" }),
+
+      el("label", { class: "full" },
+        "Work preference ",
+        eff?.work_preference ? sourceBadge(eff.work_preference.source) : null,
+        eff?.work_preference?.source === "default" ? el("span", { class: "muted small", style: "margin-left:.5rem;" }, " — currently defaults to ", el("code", {}, "any")) : null),
+      el("div", { class: "full" }, wpRadios),
+
+      el("label", { class: "full" },
+        "Preferred locations (comma-separated) ",
+        eff?.locations ? sourceBadge(eff.locations.source) : null),
+      el("input", { name: "preferred_locations_csv", class: "full",
+        value: storedLocations.join(", "),
+        placeholder: eff?.locations?.value?.length ? `inherited: ${eff.locations.value.join(", ")}` : "no locations set" }),
+
+      el("label", {}, "Salary min"),  el("input", { name: "salary_min", type: "number", value: c.salary_min ?? "" }),
+      el("label", {}, "Salary max"),  el("input", { name: "salary_max", type: "number", value: c.salary_max ?? "" }),
+      el("label", {}, "Years experience target"), el("input", { name: "years_experience_target", type: "number", value: c.years_experience_target ?? "" }),
+      el("label", {}, "Certifications focus"),    el("input", { name: "certifications", value: c.certifications ?? "" }),
+      el("label", { class: "full" }, "Notes"),
+      el("textarea", { name: "notes", class: "full" }, c.notes ?? ""),
+    ));
+
+    // Unsaved-changes indicator + save/cancel
+    const dirty = el("span", { class: "tag warn", style: "display:none;" }, "unsaved changes");
+    const initial = JSON.stringify(formSnapshot(form));
+    function markDirty() {
+      dirty.style.display = JSON.stringify(formSnapshot(form)) === initial ? "none" : "";
+    }
+    function formSnapshot(f) {
+      const fd = new FormData(f);
+      const out = {};
+      for (const [k, v] of fd.entries()) out[k] = v;
+      // include unchecked radios consistently
+      if (!out.work_preference) out.work_preference = "";
+      return out;
+    }
+    form.addEventListener("input",  markDirty);
+    form.addEventListener("change", markDirty);
+
+    form.appendChild(el("div", { class: "btn-row", style: "margin-top:.9rem; align-items:center;" },
+      el("button", { class: "btn-primary", type: "submit" }, "Save changes"),
+      el("button", { class: "btn-ghost",   type: "button", onclick: () => navigate("#campaigns") }, "Cancel"),
+      el("a",       { class: "btn-ghost",   href: `#apps?campaign_id=${c.id}` }, "View applications"),
+      el("button", { class: "btn-warn",    type: "button", onclick: async () => {
+        if (!confirm(`Close campaign "${c.name}"?`)) return;
+        try { await api(`/toba/campaigns/${c.id}/close`, { method: "POST" }); toast("Campaign closed", "ok"); navigate("#campaigns"); }
+        catch (err) { toast(err.message, "err"); }
+      } }, "Close campaign"),
+      dirty,
+    ));
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const raw = Object.fromEntries(fd.entries());
+      const patch = {};
+      // Free-text fields
+      for (const k of ["name", "target_role", "phase", "certifications", "notes"]) {
+        if (raw[k] !== undefined) patch[k] = String(raw[k]);
+      }
+      // Numbers — empty string -> null (clears override)
+      for (const k of ["salary_min", "salary_max", "years_experience_target"]) {
+        if (raw[k] === "" || raw[k] == null) patch[k] = null;
+        else patch[k] = Number(raw[k]);
+      }
+      // Work preference — empty means "clear override" -> null so it falls back
+      patch.work_preference = raw.work_preference ? raw.work_preference : null;
+      // Locations CSV -> array (empty CSV -> [] which clears the campaign override)
+      const csv = (raw.preferred_locations_csv || "").toString().trim();
+      patch.preferred_locations = csv ? csv.split(/\s*,\s*/).filter(Boolean) : null;
+
+      try {
+        const res = await api(`/toba/campaigns/${c.id}`, { method: "PATCH", body: patch });
+        toast("Campaign saved", "ok");
+        // Show the new effective context inline
+        const effPanel = $("#effPanel");
+        if (effPanel && res.effective_context) effPanel.replaceWith(renderEffectivePanel(res.effective_context));
+        // Re-snapshot to reset dirty state
+        const fresh = JSON.stringify(formSnapshot(form));
+        // eslint-disable-next-line no-undef
+        Object.defineProperty(form, "_snap", { value: fresh, writable: true });
+        dirty.style.display = "none";
+        // Trigger a full re-render so source badges update
+        setTimeout(() => navigate("#campaigns"), 400);
+      } catch (err) { toast(err.message, "err"); }
+    });
+
+    root.appendChild(form);
+
+    // ── Effective context panel ──
+    if (eff) root.appendChild(renderEffectivePanel(eff));
+
+    // ── Analytics ──
     try {
-      const a = (await api(`/cursus/analytics/campaign/${active.id}`)).analytics;
+      const a = (await api(`/toba/analytics/campaign/${c.id}`)).analytics;
       const insights = el("div", {});
       if (a?.insights?.length) {
         const ul = el("ul", { style: "margin:0; padding-left:1.1rem;" });
         for (const i of a.insights) ul.appendChild(el("li", {}, typeof i === "string" ? i : (i.message || JSON.stringify(i))));
         insights.appendChild(ul);
       } else insights.appendChild(el("div", { class: "empty" }, "No insights yet — log some applications."));
-      card.appendChild(el("div", { class: "card", style: "margin-top:1rem;" },
+      root.appendChild(el("div", { class: "card" },
         el("h3", {}, "Analytics"),
         el("div", { class: "grid cols4" },
-          mkRow("Apps", a?.total_applications ?? 0),
-          mkRow("Responses", a?.responses ?? 0),
-          mkRow("Interviews", a?.interviews ?? 0),
+          mkRow("Apps",          a?.total_applications ?? 0),
+          mkRow("Responses",     a?.responses ?? 0),
+          mkRow("Interviews",    a?.interviews ?? 0),
           mkRow("Response rate", a?.response_rate != null ? `${Math.round(a.response_rate * 100)}%` : "—"),
         ),
         insights));
     } catch { /* analytics endpoint failure is non-fatal */ }
-    root.appendChild(card);
+
   } else {
-    // Start a new one
+    // No active campaign — show create form (now with full strategy fields)
     const form = el("form", { class: "card" },
       el("h3", {}, "Start a campaign"),
+      el("p", { class: "muted small" }, "Only ", el("code", {}, "name"), " and ", el("code", {}, "target_role"),
+        " are required up front. Other fields (work preference, locations, salary, etc.) become editable once the campaign exists. Until you set them, the search context defaults to ",
+        el("code", {}, "work_preference = any"), " and ", el("code", {}, "locations = []"), "."),
       el("div", { class: "form-grid" },
         el("label", {}, "Name"),         el("input", { name: "name", required: true }),
-        el("label", {}, "Target role"),  el("input", { name: "target_role", required: true, placeholder: "e.g. Senior Site Reliability Engineer" })),
+        el("label", {}, "Target role"),  el("input", { name: "target_role", required: true, placeholder: "e.g. MSP Technician, Desktop Support" })),
       el("div", { class: "btn-row", style: "margin-top:.6rem;" },
         el("button", { class: "btn-primary", type: "submit" }, "Create")));
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      try { await api("/cursus/campaigns", { method: "POST", body: Object.fromEntries(fd.entries()) }); toast("Campaign created", "ok"); navigate("#campaigns"); }
+      try { await api("/toba/campaigns", { method: "POST", body: Object.fromEntries(fd.entries()) }); toast("Campaign created", "ok"); navigate("#campaigns"); }
       catch (err) { toast(err.message, "err"); }
     });
     root.appendChild(form);
   }
 
-  // History
+  // ── History ──
   const history = el("div", { class: "card" }, el("h3", {}, "All campaigns"));
   if (camps.length === 0) history.appendChild(el("div", { class: "empty" }, "No campaigns yet."));
   else {
     const tbl = el("table", {}, el("thead", {}, el("tr", {},
-      el("th", {}, "Name"), el("th", {}, "Target"), el("th", {}, "Phase"), el("th", {}, "Active"), el("th", {}, "Created"))));
+      el("th", {}, "Name"), el("th", {}, "Target"), el("th", {}, "Phase"), el("th", {}, "Active"), el("th", {}, "Updated"))));
     const tb = el("tbody", {});
     for (const c of camps) tb.appendChild(el("tr", {},
       el("td", {}, c.name),
       el("td", {}, c.target_role),
       el("td", {}, c.phase),
       el("td", {}, el("span", { class: `tag ${c.active ? "ok" : ""}` }, c.active ? "yes" : "—")),
-      el("td", { class: "muted" }, fmtTime(c.created_at))));
+      el("td", { class: "muted" }, fmtTime(c.updated_at || c.created_at))));
     tbl.appendChild(tb);
     history.appendChild(tbl);
   }
   root.appendChild(history);
 }
 
+// Effective-context panel reused by campaigns AND Job Scout.
+function renderEffectivePanel(eff) {
+  const card = el("div", { class: "card", id: "effPanel" }, el("h3", {}, "Effective search context"));
+  const tbl = el("table", {}, el("thead", {}, el("tr", {},
+    el("th", {}, "Field"), el("th", {}, "Value"), el("th", {}, "Source"))));
+  const tb = el("tbody", {});
+  const rows = [
+    ["Target roles",     (eff.target_roles.value || []).join(", ") || "—",      eff.target_roles.source],
+    ["Work preference",  eff.work_preference.value,                              eff.work_preference.source],
+    ["Locations",        (eff.locations.value || []).join(", ") || "—",          eff.locations.source],
+    ["Salary min",       eff.salary_min.value ?? "—",                            eff.salary_min.source],
+    ["Salary max",       eff.salary_max.value ?? "—",                            eff.salary_max.source],
+    ["Certifications",   eff.certifications.value ?? "—",                        eff.certifications.source],
+    ["Years exp target", eff.years_experience_target.value ?? "—",               eff.years_experience_target.source],
+    ["Notes",            eff.notes.value ?? "—",                                 eff.notes.source],
+  ];
+  // Show a warning banner if anything important is on a default
+  const defaultsList = rows.filter(([_, __, src]) => src === "default").map(([f]) => f);
+  if (defaultsList.length) {
+    card.appendChild(el("div", { class: "banner" },
+      `Using fallback default(s) because no explicit preference exists: `,
+      el("strong", {}, defaultsList.join(", ")), `. Set them on the campaign for explicit control.`));
+  }
+  for (const [field, value, source] of rows) {
+    tb.appendChild(el("tr", {},
+      el("td", {}, field),
+      el("td", { class: "muted", style: "font-family:var(--mono);" }, String(value)),
+      el("td", {}, sourceBadge(source))));
+  }
+  tbl.appendChild(tb);
+  card.appendChild(tbl);
+  return card;
+}
+
 // ── Job Scout ────────────────────────────────────────────────────────────
 async function renderJobScout(root) {
-  const ctx = await api("/cursus/job-scout/context").catch(() => null);
+  const ctx = await api("/toba/job-scout/context").catch(() => null);
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Job Scout"));
   root.appendChild(el("p", { class: "muted" },
-    "Cursus does not crawl boards itself. Use the context below to drive an external search tool, then ingest results here."));
+    "Toba does not crawl boards itself. Use the context below to drive an external search tool, then ingest results here."));
 
-  // Context preview
+  // Effective search context — sourced per field
   const c = ctx?.context || {};
-  const ctxCard = el("div", { class: "card" }, el("h3", {}, "Search context"),
+  const eff = ctx?.effective;
+  if (eff) {
+    root.appendChild(renderEffectivePanel(eff));
+  } else {
+    // Fallback if /context didn't return effective (old build)
+    root.appendChild(el("div", { class: "card" }, el("h3", {}, "Search context"),
+      el("div", { class: "grid cols3" },
+        mkRow("Campaign", c.campaign_name || "—"),
+        mkRow("Primary target", c.primary_target_role || "—"),
+        mkRow("Remote preference", c.remote_preference || "—"))));
+  }
+
+  // Operational notes
+  root.appendChild(el("div", { class: "card" }, el("h3", {}, "Ingestion mode"),
     el("div", { class: "grid cols3" },
-      mkRow("Campaign", c.campaign_name || "—"),
-      mkRow("Primary target", c.primary_target_role || "—"),
-      mkRow("All targets", (c.all_target_roles || []).join(", ") || "—"),
-      mkRow("Location", c.location || "—"),
-      mkRow("Remote preference", c.remote_preference || "—"),
-      mkRow("Salary", c.salary_range ? `${c.salary_range.min ?? "?"} – ${c.salary_range.max ?? "?"}` : "—"),
-      mkRow("Certifications", c.certifications || "—"),
-      mkRow("Live search?",  ctx?.live_search_implemented ? "yes" : "no (manual/external)"),
-      mkRow("Mode", ctx?.ingestion_mode || "—"),
-    ));
-  root.appendChild(ctxCard);
+      mkRow("Live search?", ctx?.live_search_implemented ? "yes" : "no (external/manual)"),
+      mkRow("Mode",          ctx?.ingestion_mode || "—"),
+      mkRow("Campaign",      c.campaign_name || "—"))));
 
   if (!c.campaign_id) {
     root.appendChild(el("div", { class: "banner warn" }, "Create a campaign first. Job Scout will not ingest applications without an active campaign."));
     return;
   }
+
+  root.appendChild(el("div", { class: "row", style: "margin: .5rem 0 1rem;" },
+    el("a", { class: "btn-ghost", href: "#campaigns" }, "Edit campaign strategy →")));
 
   // Manual ingest
   const form = el("form", { class: "card" },
@@ -674,7 +947,7 @@ async function renderJobScout(root) {
     if (raw.match_score) raw.match_score = Number(raw.match_score);
     const job = {}; for (const [k, v] of Object.entries(raw)) if (v) job[k] = v;
     try {
-      const res = await api("/cursus/job-scout/ingest", { method: "POST", body: { jobs: [job] } });
+      const res = await api("/toba/job-scout/ingest", { method: "POST", body: { jobs: [job] } });
       resultBox.innerHTML = "";
       if (res.ingested) resultBox.appendChild(el("div", { class: "banner ok" }, `Ingested ${res.ingested} job(s). Campaign: ${res.campaign_id?.slice(0,8) || "?"}.`));
       if (res.duplicates_skipped) resultBox.appendChild(el("div", { class: "banner" }, `${res.duplicates_skipped} duplicate(s) skipped (fingerprint match).`));
@@ -690,7 +963,7 @@ async function renderApplications(root) {
   const hash = location.hash;
   const m = /[?&]campaign_id=([^&]+)/.exec(hash);
   const cid = m ? m[1] : "";
-  const url = cid ? `/cursus/applications?campaign_id=${encodeURIComponent(cid)}` : "/cursus/applications";
+  const url = cid ? `/toba/applications?campaign_id=${encodeURIComponent(cid)}` : "/toba/applications";
   const apps = (await api(url)).applications || [];
 
   root.innerHTML = "";
@@ -721,7 +994,7 @@ async function renderApplications(root) {
     for (const a of rows) {
       const statusSel = el("select", {}, ...STATUSES.map(s => el("option", { value: s, selected: a.status === s }, s)));
       statusSel.addEventListener("change", async () => {
-        try { await api(`/cursus/applications/${a.id}`, { method: "PATCH", body: { status: statusSel.value } }); toast("Updated", "ok"); }
+        try { await api(`/toba/applications/${a.id}`, { method: "PATCH", body: { status: statusSel.value } }); toast("Updated", "ok"); }
         catch (err) { toast(err.message, "err"); statusSel.value = a.status; }
       });
       tb.appendChild(el("tr", {},
@@ -733,7 +1006,7 @@ async function renderApplications(root) {
         el("td", { class: "muted" }, fmtTime(a.applied_at || a.created_at)),
         el("td", {}, el("button", { class: "btn-ghost", onclick: async () => {
           if (!confirm(`Mark stale follow-up on ${a.company}?`)) return;
-          try { await api(`/cursus/applications/${a.id}/follow-up`, { method: "POST" }); toast("Follow-up recorded", "ok"); navigate("#apps"); }
+          try { await api(`/toba/applications/${a.id}/follow-up`, { method: "POST" }); toast("Follow-up recorded", "ok"); navigate("#apps"); }
           catch (err) { toast(err.message, "err"); }
         } }, "Follow up"))));
     }
@@ -751,7 +1024,7 @@ async function renderApplications(root) {
 
 // ── Automation / Approval queue ──────────────────────────────────────────
 async function renderQueue(root) {
-  const tasks = (await api("/cursus/automation").catch(() => ({ tasks: [], mode: "?" })));
+  const tasks = (await api("/toba/automation").catch(() => ({ tasks: [], mode: "?" })));
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Automation Queue"));
   root.appendChild(el("p", { class: "muted" }, `Mode: `, el("code", {}, tasks.mode || "?"), `. Tasks are queued for review; nothing executes without approval.`));
@@ -774,7 +1047,7 @@ async function renderQueue(root) {
   root.appendChild(list);
 
   async function act(id, what) {
-    try { await api(`/cursus/automation/${id}/${what}`, { method: "POST" }); toast(`${what}d`, "ok"); navigate("#queue"); }
+    try { await api(`/toba/automation/${id}/${what}`, { method: "POST" }); toast(`${what}d`, "ok"); navigate("#queue"); }
     catch (err) { toast(err.message, "err"); }
   }
 }
@@ -801,7 +1074,7 @@ async function renderReceipts(root) {
   async function load() {
     out.innerHTML = "<div class='loading'>Loading…</div>";
     const q = active ? `?action=${encodeURIComponent(active)}&limit=100` : "?limit=100";
-    const recs = (await api(`/cursus/receipts${q}`)).receipts || [];
+    const recs = (await api(`/toba/receipts${q}`)).receipts || [];
     out.innerHTML = "";
     if (!recs.length) { out.appendChild(el("div", { class: "empty" }, "No receipts.")); return; }
     for (const r of recs) out.appendChild(receiptRow(r));
@@ -826,20 +1099,18 @@ function receiptRow(r) {
 
 // ── Settings ─────────────────────────────────────────────────────────────
 async function renderSettings(root) {
-  const [providerR, statusR] = await Promise.allSettled([api("/cursus/provider"), api("/status")]);
+  const [providerR, statusR] = await Promise.allSettled([api("/toba/provider"), api("/status")]);
   const p = providerR.status === "fulfilled" ? providerR.value.provider : {};
   const s = statusR.status === "fulfilled" ? statusR.value : {};
   root.innerHTML = "";
   root.appendChild(el("h2", {}, "Settings"));
-  root.appendChild(el("p", { class: "muted" }, "Service-wide provider, network exposure, and auth posture. API keys are write-only."));
+  root.appendChild(el("p", { class: "muted" }, "Service-wide provider and network exposure. API keys are write-only."));
 
   const stats = el("div", { class: "grid cols3" });
   for (const [k, v] of Object.entries({
     "Host":              s.host,
     "Port":              s.port,
     "Network exposure":  s.network_exposure,
-    "Auth required":     s.auth_required,
-    "Token configured":  s.auth_token_configured,
     "Bridge enabled":    s.bridge_enabled,
     "OpenRouter configured": s.openrouter_configured,
     "OpenRouter source":     s.openrouter_source,
@@ -863,7 +1134,7 @@ async function renderSettings(root) {
       el("option", { value: "true",  selected: !!p.local_only_mode }, "yes"))));
   form.appendChild(el("div", { class: "btn-row", style: "margin-top:.7rem;" },
     el("button", { class: "btn-primary", type: "submit" }, "Apply (runtime; not persisted)")));
-  form.appendChild(el("p", { class: "muted small" }, "These changes apply in-process. For persistence, edit ", el("code", {}, "/mnt/ai/cursus/.env"), " and restart the service."));
+  form.appendChild(el("p", { class: "muted small" }, "These changes apply in-process. For persistence, edit ", el("code", {}, "/mnt/ai/toba/.env"), " and restart the service."));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -875,19 +1146,10 @@ async function renderSettings(root) {
       else patch[k] = v;
     }
     if (!patch.api_key) delete patch.api_key;
-    try { await api("/cursus/provider", { method: "PATCH", body: patch }); toast("Provider updated", "ok"); refreshStatus(); navigate("#settings"); }
+    try { await api("/toba/provider", { method: "PATCH", body: patch }); toast("Provider updated", "ok"); refreshStatus(); navigate("#settings"); }
     catch (err) { toast(err.message, "err"); }
   });
   root.appendChild(form);
-
-  // Auth controls
-  const auth = el("div", { class: "card" },
-    el("h3", {}, "Browser auth token"),
-    el("p", { class: "muted small" }, getToken() ? "A token is stored in localStorage." : "No token stored. Set one if this Cursus requires auth."),
-    el("div", { class: "btn-row" },
-      el("button", { class: "btn-primary", onclick: () => showAuthModal() }, "Set token"),
-      el("button", { class: "btn-ghost",   onclick: () => { setToken(""); refreshStatus(); toast("Token cleared", "warn"); navigate("#settings"); } }, "Clear token")));
-  root.appendChild(auth);
 
   const clearAction = (label, path, method = "DELETE") => el("button", { class: "btn-ghost", onclick: async () => {
     if (!confirm(`${label}? This cannot be undone from the UI.`)) return;
@@ -899,14 +1161,14 @@ async function renderSettings(root) {
     el("h3", {}, "Data management"),
     el("p", { class: "muted small" }, "Use these controls before release or demos. The factory reset script backs up the DB first and never deletes .env."),
     el("div", { class: "btn-row" },
-      clearAction("Clear profile", "/cursus/profile/clear", "POST"),
-      clearAction("Clear resumes", "/cursus/resumes"),
-      clearAction("Clear applications", "/cursus/applications"),
-      clearAction("Clear campaigns", "/cursus/campaigns"),
-      clearAction("Clear receipts", "/cursus/receipts"),
-      clearAction("Clear automation queue", "/cursus/automation")),
+      clearAction("Clear profile", "/toba/profile/clear", "POST"),
+      clearAction("Clear resumes", "/toba/resumes"),
+      clearAction("Clear applications", "/toba/applications"),
+      clearAction("Clear campaigns", "/toba/campaigns"),
+      clearAction("Clear receipts", "/toba/receipts"),
+      clearAction("Clear automation queue", "/toba/automation")),
     el("p", { class: "small muted" }, "Factory reset / release reset:"),
-    el("pre", {}, "cd /mnt/ai/cursus && scripts/cursus-reset.sh --personal-data-only --dry-run\ncd /mnt/ai/cursus && scripts/cursus-reset.sh --personal-data-only"),
+    el("pre", {}, "cd /mnt/ai/cursus && scripts/toba-reset.sh --personal-data-only --dry-run\ncd /mnt/ai/cursus && scripts/toba-reset.sh --personal-data-only"),
     el("p", { class: "small muted" }, "Release privacy audit:"),
     el("pre", {}, "cd /mnt/ai/cursus && scripts/audit-release-privacy.sh")));
 
@@ -914,9 +1176,9 @@ async function renderSettings(root) {
   root.appendChild(el("div", { class: "card" },
     el("h3", {}, "Operational"),
     el("p", { class: "small muted" }, "Restart after env changes:"),
-    el("pre", {}, "sudo systemctl restart cursus.service"),
+    el("pre", {}, "sudo systemctl restart toba.service"),
     el("p", { class: "small muted" }, "Verify standalone posture:"),
-    el("pre", {}, "/mnt/ai/cursus/scripts/verify-standalone.sh"),
+    el("pre", {}, "/mnt/ai/toba/scripts/verify-standalone.sh"),
     el("p", { class: "small muted" }, "Reconfigure providers / Tailscale:"),
-    el("pre", {}, "cd /mnt/ai/cursus && pnpm run cursus:setup")));
+    el("pre", {}, "cd /mnt/ai/cursus && pnpm run toba:setup")));
 }

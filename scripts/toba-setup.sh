@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Cursus one-command setup wizard
+# Toba one-command setup wizard
 # =================================
 # Idempotent. Re-runnable. Never prints secrets. Backs up before mutating.
 #
 #   cd /mnt/ai/cursus
-#   ./scripts/cursus-setup.sh
+#   ./scripts/toba-setup.sh
 #
 # What it does:
 #   1. Preflight (cwd, pnpm, systemctl, current service config, .env, tailscale)
@@ -19,7 +19,7 @@
 # Flags:
 #   --non-interactive      Take no input; use defaults; skip provider/Tailscale wizards
 #   --skip-tests           Skip the pnpm test step (NOT recommended)
-#   --skip-migrate         Don't touch /etc/systemd/system/cursus.service
+#   --skip-migrate         Don't touch /etc/systemd/system/toba.service
 #   --base-url URL         Override the URL used for API probes (default http://127.0.0.1:18815)
 #
 # Exit codes:
@@ -34,7 +34,7 @@ set -uo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
 CANONICAL_DIR="/mnt/ai/cursus"
-SERVICE_NAME="cursus.service"
+SERVICE_NAME="toba.service"
 SERVICE_UNIT="/etc/systemd/system/${SERVICE_NAME}"
 ENV_FILE="${CANONICAL_DIR}/.env"
 DEFAULT_BASE_URL="http://127.0.0.1:18815"
@@ -156,7 +156,7 @@ upsert_env() {
 }
 
 # ── Step 1: Preflight ───────────────────────────────────────────────────────
-banner "Cursus Setup Wizard"
+banner "Toba Setup Wizard"
 
 # Cwd check
 CURRENT_DIR="$(pwd -P)"
@@ -183,9 +183,9 @@ if [ "$HAS_SYSTEMD" = "1" ]; then
   SERVICE_ACTIVE="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || echo no)"
   if [ -f "$SERVICE_UNIT" ]; then
     SERVICE_WORKDIR="$(awk -F= '/^WorkingDirectory=/{print $2}' "$SERVICE_UNIT" | head -1)"
-    SERVICE_DBPATH="$(awk -F= '/^Environment=CURSUS_DB_PATH=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^CURSUS_DB_PATH=//' | head -1)"
-    SERVICE_HOST="$(awk -F= '/^Environment=CURSUS_HOST=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^CURSUS_HOST=//' | head -1)"
-    SERVICE_PORT="$(awk -F= '/^Environment=CURSUS_PORT=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^CURSUS_PORT=//' | head -1)"
+    SERVICE_DBPATH="$(awk -F= '/^Environment=(TOBA|CURSUS)_DB_PATH=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^[A-Z_]*_DB_PATH=//' | head -1)"
+    SERVICE_HOST="$(awk -F= '/^Environment=(TOBA|CURSUS)_HOST=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^[A-Z_]*_HOST=//' | head -1)"
+    SERVICE_PORT="$(awk -F= '/^Environment=(TOBA|CURSUS)_PORT=/{print substr($0, index($0,"=")+1)}' "$SERVICE_UNIT" | sed 's/^[A-Z_]*_PORT=//' | head -1)"
   fi
   printf "  service: %s · WorkingDirectory=%s · DB=%s · %s:%s\n" \
     "$SERVICE_ACTIVE" "${SERVICE_WORKDIR:-?}" "${SERVICE_DBPATH:-?}" "${SERVICE_HOST:-?}" "${SERVICE_PORT:-?}"
@@ -213,26 +213,26 @@ else
   ok "deps installed"
 
   info "pnpm typecheck"
-  if ! pnpm typecheck >/tmp/cursus-setup-typecheck.log 2>&1; then
-    err "typecheck failed — log: /tmp/cursus-setup-typecheck.log"
-    tail -20 /tmp/cursus-setup-typecheck.log
+  if ! pnpm typecheck >/tmp/toba-setup-typecheck.log 2>&1; then
+    err "typecheck failed — log: /tmp/toba-setup-typecheck.log"
+    tail -20 /tmp/toba-setup-typecheck.log
     exit 2
   fi
   ok "typecheck clean"
 
   info "pnpm test"
-  if ! pnpm test >/tmp/cursus-setup-test.log 2>&1; then
-    err "tests failed — log: /tmp/cursus-setup-test.log"
-    tail -25 /tmp/cursus-setup-test.log
+  if ! pnpm test >/tmp/toba-setup-test.log 2>&1; then
+    err "tests failed — log: /tmp/toba-setup-test.log"
+    tail -25 /tmp/toba-setup-test.log
     exit 2
   fi
-  TESTS_LINE="$(grep -E "^ *Tests" /tmp/cursus-setup-test.log | tail -1 || echo "")"
+  TESTS_LINE="$(grep -E "^ *Tests" /tmp/toba-setup-test.log | tail -1 || echo "")"
   ok "tests passed${TESTS_LINE:+ — $TESTS_LINE}"
 
   info "pnpm build"
-  if ! pnpm build >/tmp/cursus-setup-build.log 2>&1; then
-    err "build failed — log: /tmp/cursus-setup-build.log"
-    tail -20 /tmp/cursus-setup-build.log
+  if ! pnpm build >/tmp/toba-setup-build.log 2>&1; then
+    err "build failed — log: /tmp/toba-setup-build.log"
+    tail -20 /tmp/toba-setup-build.log
     exit 2
   fi
   ok "build clean"
@@ -246,8 +246,8 @@ fi
 
 if [ "$NEEDS_MIGRATION" = "1" ] && [ "$SKIP_MIGRATE" != "1" ]; then
   banner "Service migration to ${CANONICAL_DIR}"
-  warn "cursus.service WorkingDirectory=${SERVICE_WORKDIR} differs from canonical."
-  ask_yn "Migrate cursus.service to ${CANONICAL_DIR} now? (stops service ~10s)" "Y"
+  warn "toba.service WorkingDirectory=${SERVICE_WORKDIR} differs from canonical."
+  ask_yn "Migrate toba.service to ${CANONICAL_DIR} now? (stops service ~10s)" "Y"
   if [ "$REPLY_YN" = "y" ]; then
     require_sudo
     if [ -x "${CANONICAL_DIR}/scripts/migrate-to-canonical.sh" ]; then
@@ -265,7 +265,7 @@ elif [ "$NEEDS_MIGRATION" = "0" ]; then
   ok "Service is already on canonical path (${SERVICE_WORKDIR:-not yet installed})"
 fi
 
-# Helper to restart cursus.service (after env changes) and wait for /health.
+# Helper to restart toba.service (after env changes) and wait for /health.
 restart_and_wait() {
   if [ "$HAS_SYSTEMD" != "1" ]; then warn "  no systemd — skipping restart"; return; fi
   if ! systemctl list-unit-files 2>/dev/null | grep -q "^${SERVICE_NAME}"; then
@@ -288,22 +288,22 @@ restart_and_wait() {
   exit 4
 }
 
-# ── Helper: PATCH /cursus/provider via local API (or, when auth required, with token) ─
+# ── Helper: PATCH /toba/provider via local API (or, when auth required, with token) ─
 patch_provider() {
   local body="$1"
-  local token="${CURSUS_AUTH_TOKEN_RUNTIME:-}"
+  local token="${TOBA_AUTH_TOKEN_RUNTIME:-}"
   local hdr=()
   [ -n "$token" ] && hdr=(-H "Authorization: Bearer $token")
-  curl -fsS -X PATCH "${BASE_URL}/cursus/provider" \
+  curl -fsS -X PATCH "${BASE_URL}/toba/provider" \
     -H 'content-type: application/json' "${hdr[@]}" \
     -d "$body" >/dev/null
 }
 patch_agent() {
   local id="$1"; local body="$2"
-  local token="${CURSUS_AUTH_TOKEN_RUNTIME:-}"
+  local token="${TOBA_AUTH_TOKEN_RUNTIME:-}"
   local hdr=()
   [ -n "$token" ] && hdr=(-H "Authorization: Bearer $token")
-  curl -fsS -X PATCH "${BASE_URL}/cursus/dux/agents/${id}" \
+  curl -fsS -X PATCH "${BASE_URL}/toba/dux/agents/${id}" \
     -H 'content-type: application/json' "${hdr[@]}" \
     -d "$body" >/dev/null
 }
@@ -318,7 +318,7 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
 else
   cat <<EOF
 Select an LLM provider for Dux chat:
-  1) ollama        — local Ollama (CURSUS_LOCAL_ONLY=true)
+  1) ollama        — local Ollama (TOBA_LOCAL_ONLY=true)
   2) openrouter    — OpenRouter (default model: deepseek/deepseek-v4-pro)
   3) echo          — local debug echo (no real model)
   4) skip          — leave unconfigured
@@ -331,10 +331,10 @@ EOF
       ask_str "Ollama model name" "llama3"
       PROVIDER_MODEL="$REPLY_STR"
       backup_file "$ENV_FILE"
-      upsert_env CURSUS_PROVIDER         ollama
-      upsert_env CURSUS_MODEL            "$PROVIDER_MODEL"
-      upsert_env CURSUS_PROVIDER_BASE_URL "http://127.0.0.1:11434"
-      upsert_env CURSUS_LOCAL_ONLY       true
+      upsert_env TOBA_PROVIDER         ollama
+      upsert_env TOBA_MODEL            "$PROVIDER_MODEL"
+      upsert_env TOBA_PROVIDER_BASE_URL "http://127.0.0.1:11434"
+      upsert_env TOBA_LOCAL_ONLY       true
       ok "Ollama selected — model: ${PROVIDER_MODEL}"
       ;;
     2|openrouter)
@@ -342,24 +342,24 @@ EOF
       PROVIDER_MODEL="$REPLY_STR"
       ask_secret "OpenRouter API key (input hidden — press Enter to skip writing key now):"
       backup_file "$ENV_FILE"
-      upsert_env CURSUS_PROVIDER          openrouter
-      upsert_env CURSUS_MODEL             "$PROVIDER_MODEL"
-      upsert_env CURSUS_PROVIDER_BASE_URL "https://openrouter.ai/api/v1"
-      upsert_env CURSUS_LOCAL_ONLY        false
+      upsert_env TOBA_PROVIDER          openrouter
+      upsert_env TOBA_MODEL             "$PROVIDER_MODEL"
+      upsert_env TOBA_PROVIDER_BASE_URL "https://openrouter.ai/api/v1"
+      upsert_env TOBA_LOCAL_ONLY        false
       if [ -n "$REPLY_SECRET" ]; then
-        upsert_env CURSUS_OPENROUTER_API_KEY "$REPLY_SECRET"
+        upsert_env TOBA_OPENROUTER_API_KEY "$REPLY_SECRET"
         HAS_OPENROUTER_KEY=1
         ok "OpenRouter selected — model: ${PROVIDER_MODEL} (API key written, chmod 600)"
       else
-        warn "OpenRouter selected — model: ${PROVIDER_MODEL} (no API key entered; chat will return 503 until you set CURSUS_OPENROUTER_API_KEY)"
+        warn "OpenRouter selected — model: ${PROVIDER_MODEL} (no API key entered; chat will return 503 until you set TOBA_OPENROUTER_API_KEY)"
       fi
       REPLY_SECRET=""   # forget immediately
       ;;
     3|echo)
       backup_file "$ENV_FILE"
-      upsert_env CURSUS_PROVIDER  echo
-      upsert_env CURSUS_MODEL     "cursus-echo"
-      upsert_env CURSUS_LOCAL_ONLY false
+      upsert_env TOBA_PROVIDER  echo
+      upsert_env TOBA_MODEL     "toba-echo"
+      upsert_env TOBA_LOCAL_ONLY false
       ok "Echo provider selected (debug only)"
       ;;
     4|skip|*)
@@ -377,14 +377,14 @@ fi
 # ── Step 5: Dux agent wizard ────────────────────────────────────────────────
 banner "Dux agents"
 AGENTS_JSON=""
-if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/cursus/dux/agents" 2>/dev/null)"; then
+if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/dux/agents" 2>/dev/null)"; then
   if command -v jq >/dev/null 2>&1; then
     echo "$AGENTS_JSON" | jq -r '.agents[] | "  \(.id) — \(.role) (\(.provider // "default")/\(.model // "default"))"'
   else
     note "(install jq for a prettier listing)"
   fi
 else
-  warn "Could not reach ${BASE_URL}/cursus/dux/agents (service may not be running)"
+  warn "Could not reach ${BASE_URL}/toba/dux/agents (service may not be running)"
 fi
 
 if [ "$NON_INTERACTIVE" != "1" ] && [ -n "$AGENTS_JSON" ]; then
@@ -408,10 +408,10 @@ if [ "$NON_INTERACTIVE" != "1" ] && [ -n "$AGENTS_JSON" ]; then
   fi
 fi
 
-# Sanity: no API-key leakage on /cursus/dux/agents
-if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/cursus/dux/agents" 2>/dev/null)"; then
+# Sanity: no API-key leakage on /toba/dux/agents
+if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/dux/agents" 2>/dev/null)"; then
   if echo "$AGENTS_JSON" | grep -qE 'sk-or-[A-Za-z0-9_-]{8,}|"api_key":"sk-'; then
-    err "API key appears in /cursus/dux/agents response — refusing to continue"
+    err "API key appears in /toba/dux/agents response — refusing to continue"
     exit 1
   fi
   ok "no API-key leak in agents endpoint"
@@ -425,7 +425,7 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
 elif [ "$TAILSCALE_AVAILABLE" != "yes" ]; then
   note "Tailscale CLI not installed — skipping."
 else
-  ask_yn "Make Cursus reachable over Tailscale? (binds 0.0.0.0, requires auth token)" "N"
+  ask_yn "Make Toba reachable over Tailscale? (binds 0.0.0.0, requires auth token)" "N"
   ENABLE_TAILSCALE="$REPLY_YN"
 fi
 
@@ -436,14 +436,14 @@ if [ "$ENABLE_TAILSCALE" = "y" ]; then
   [ -n "$GENERATED_TOKEN" ] || fail "Could not generate auth token (need openssl or xxd)" 1
 
   backup_file "$ENV_FILE"
-  upsert_env CURSUS_HOST                   "0.0.0.0"
-  upsert_env CURSUS_PORT                   "${SERVICE_PORT:-18815}"
-  upsert_env CURSUS_AUTH_TOKEN             "$GENERATED_TOKEN"
-  upsert_env CURSUS_REQUIRE_AUTH           "true"
-  upsert_env CURSUS_ALLOW_LOOPBACK_NO_AUTH "false"
+  upsert_env TOBA_HOST                   "0.0.0.0"
+  upsert_env TOBA_PORT                   "${SERVICE_PORT:-18815}"
+  upsert_env TOBA_AUTH_TOKEN             "$GENERATED_TOKEN"
+  upsert_env TOBA_REQUIRE_AUTH           "true"
+  upsert_env TOBA_ALLOW_LOOPBACK_NO_AUTH "false"
 
   # Used by remaining patch_* calls in this session
-  CURSUS_AUTH_TOKEN_RUNTIME="$GENERATED_TOKEN"
+  TOBA_AUTH_TOKEN_RUNTIME="$GENERATED_TOKEN"
   restart_and_wait
   ok "Tailscale-ready: bound 0.0.0.0, auth required"
 else
@@ -455,21 +455,21 @@ banner "Verification"
 VERIFY_OK=1
 if [ -x "${CANONICAL_DIR}/scripts/verify-standalone.sh" ]; then
   info "verify-standalone.sh"
-  if CURSUS_URL="$BASE_URL" "${CANONICAL_DIR}/scripts/verify-standalone.sh" > /tmp/cursus-verify-standalone.log 2>&1; then
-    tail -1 /tmp/cursus-verify-standalone.log | sed 's/^/  /'
+  if TOBA_URL="$BASE_URL" "${CANONICAL_DIR}/scripts/verify-standalone.sh" > /tmp/toba-verify-standalone.log 2>&1; then
+    tail -1 /tmp/toba-verify-standalone.log | sed 's/^/  /'
   else
-    err "standalone verification FAILED (log: /tmp/cursus-verify-standalone.log)"
-    tail -20 /tmp/cursus-verify-standalone.log
+    err "standalone verification FAILED (log: /tmp/toba-verify-standalone.log)"
+    tail -20 /tmp/toba-verify-standalone.log
     VERIFY_OK=0
   fi
 fi
 if [ -x "${CANONICAL_DIR}/scripts/verify-tailscale-ready.sh" ]; then
   info "verify-tailscale-ready.sh"
-  if CURSUS_URL="$BASE_URL" CURSUS_AUTH_TOKEN="${GENERATED_TOKEN:-}" "${CANONICAL_DIR}/scripts/verify-tailscale-ready.sh" > /tmp/cursus-verify-tailscale.log 2>&1; then
-    tail -1 /tmp/cursus-verify-tailscale.log | sed 's/^/  /'
+  if TOBA_URL="$BASE_URL" TOBA_AUTH_TOKEN="${GENERATED_TOKEN:-}" "${CANONICAL_DIR}/scripts/verify-tailscale-ready.sh" > /tmp/toba-verify-tailscale.log 2>&1; then
+    tail -1 /tmp/toba-verify-tailscale.log | sed 's/^/  /'
   else
-    err "Tailscale-ready verification FAILED (log: /tmp/cursus-verify-tailscale.log)"
-    tail -25 /tmp/cursus-verify-tailscale.log
+    err "Tailscale-ready verification FAILED (log: /tmp/toba-verify-tailscale.log)"
+    tail -25 /tmp/toba-verify-tailscale.log
     VERIFY_OK=0
   fi
 fi
@@ -478,10 +478,10 @@ fi
 SMOKE_HDR=()
 [ -n "$GENERATED_TOKEN" ] && SMOKE_HDR=(-H "Authorization: Bearer $GENERATED_TOKEN")
 SMOKE_STATUS="$(curl -fsS "${SMOKE_HDR[@]}" "${BASE_URL}/status" 2>/dev/null || echo "{}")"
-SMOKE_PROVIDER="$(curl -fsS "${SMOKE_HDR[@]}" "${BASE_URL}/cursus/provider" 2>/dev/null || echo "{}")"
+SMOKE_PROVIDER="$(curl -fsS "${SMOKE_HDR[@]}" "${BASE_URL}/toba/provider" 2>/dev/null || echo "{}")"
 
 # ── Step 8: Final summary ───────────────────────────────────────────────────
-banner "Cursus setup complete"
+banner "Toba setup complete"
 if [ "$HAS_SYSTEMD" = "1" ]; then
   printf "  Service:        %s\n" "$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || echo unknown)"
 fi
@@ -506,7 +506,7 @@ if [ "$ENABLE_TAILSCALE" = "y" ]; then
   printf "%sTailscale access%s\n" "$C_BOLD" "$C_RST"
   if [ -n "$TAILSCALE_IP" ]; then
     printf "  URL:      %shttp://%s:%s/%s\n" "$C_INFO" "$TAILSCALE_IP" "${SERVICE_PORT:-18815}" "$C_RST"
-    printf "  curl:     curl -H 'Authorization: Bearer \$CURSUS_AUTH_TOKEN' http://%s:%s/status\n" "$TAILSCALE_IP" "${SERVICE_PORT:-18815}"
+    printf "  curl:     curl -H 'Authorization: Bearer \$TOBA_AUTH_TOKEN' http://%s:%s/status\n" "$TAILSCALE_IP" "${SERVICE_PORT:-18815}"
   fi
   printf "  Token:    %s%s%s\n" "$C_WARN" "$GENERATED_TOKEN" "$C_RST"
   printf "%s  ↑ shown once; saved in %s (chmod 600). Treat as a secret.%s\n" "$C_DIM" "$ENV_FILE" "$C_RST"
@@ -517,15 +517,15 @@ echo "Next steps:"
 case "${PROVIDER_CHOICE:-}" in
   2|openrouter)
     [ "$HAS_OPENROUTER_KEY" = "1" ] \
-      && echo "  • Try the strategist: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/cursus/dux/agents/strategist/chat -H 'content-type: application/json' -d '{\"message\":\"weekly plan\"}'" \
-      || echo "  • Add your OpenRouter key:  edit ${ENV_FILE} → set CURSUS_OPENROUTER_API_KEY=…  then  sudo systemctl restart ${SERVICE_NAME}"
+      && echo "  • Try the strategist: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/dux/agents/strategist/chat -H 'content-type: application/json' -d '{\"message\":\"weekly plan\"}'" \
+      || echo "  • Add your OpenRouter key:  edit ${ENV_FILE} → set TOBA_OPENROUTER_API_KEY=…  then  sudo systemctl restart ${SERVICE_NAME}"
     ;;
   1|ollama)
     echo "  • Make sure 'ollama serve' is running and 'ollama pull ${PROVIDER_MODEL:-llama3}' completed"
-    echo "  • Try: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/cursus/dux/chat -H 'content-type: application/json' -d '{\"message\":\"hello\"}'"
+    echo "  • Try: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/dux/chat -H 'content-type: application/json' -d '{\"message\":\"hello\"}'"
     ;;
   3|echo) echo "  • Echo provider is for debugging. Switch to ollama/openrouter when ready." ;;
-  skip|*) echo "  • Configure a provider: rerun  pnpm run cursus:setup  (or ./scripts/cursus-setup.sh)" ;;
+  skip|*) echo "  • Configure a provider: rerun  pnpm run cursus:setup  (or ./scripts/toba-setup.sh)" ;;
 esac
 echo "  • Browse the landing page:  ${BASE_URL}/"
 echo "  • Logs:  journalctl -u ${SERVICE_NAME} -f"

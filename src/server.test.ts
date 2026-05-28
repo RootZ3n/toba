@@ -5,24 +5,24 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { CursusV1DB, CursusV2DB, CURSUS_SCHEMA_VERSION } from "./db.js";
+import { TobaV1DB, TobaV2DB, TOBA_SCHEMA_VERSION } from "./db.js";
 import { registerRoutes } from "./routes.js";
 
 const SERVER_SOURCE = readFileSync(join(import.meta.dirname, "server.ts"), "utf-8");
 
 function buildApp() {
-  const dir = join(tmpdir(), `cursus-test-${randomUUID()}`);
+  const dir = join(tmpdir(), `toba-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
   const dbPath = join(dir, "cursus.db");
-  const v1 = new CursusV1DB(dbPath);
-  const v2 = new CursusV2DB(dbPath);
+  const v1 = new TobaV1DB(dbPath);
+  const v2 = new TobaV2DB(dbPath);
   const app = Fastify();
   registerRoutes(app, v1, v2);
   return { app, v1, v2, dir, dbPath };
 }
 
-describe("Cursus standalone", () => {
-  const contexts: Array<{ app: ReturnType<typeof Fastify>; v1: CursusV1DB; v2: CursusV2DB; dir: string }> = [];
+describe("Toba standalone", () => {
+  const contexts: Array<{ app: ReturnType<typeof Fastify>; v1: TobaV1DB; v2: TobaV2DB; dir: string }> = [];
 
   function create() {
     const ctx = buildApp();
@@ -51,10 +51,10 @@ describe("Cursus standalone", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.ok).toBe(true);
-    expect(body.service).toBe("cursus");
+    expect(body.service).toBe("toba");
     expect(body.status).toBe("healthy");
     expect(body.db.reachable).toBe(true);
-    expect(body.db.schema_version).toBe(CURSUS_SCHEMA_VERSION);
+    expect(body.db.schema_version).toBe(TOBA_SCHEMA_VERSION);
     expect(body.db.schema_match).toBe(true);
     expect(typeof body.uptime).toBe("number");
     expect(typeof body.totalApplications).toBe("number");
@@ -67,8 +67,8 @@ describe("Cursus standalone", () => {
     const res = await app.inject({ method: "GET", url: "/version" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.service).toBe("cursus");
-    expect(body.schema_version).toBe(CURSUS_SCHEMA_VERSION);
+    expect(body.service).toBe("toba");
+    expect(body.schema_version).toBe(TOBA_SCHEMA_VERSION);
   });
 
   it("GET /status returns expanded status with all fields", async () => {
@@ -94,21 +94,21 @@ describe("Cursus standalone", () => {
   // ══════════════════════════════════════════════════════════════════════════
 
   it("V1 and V2 both stamp same schema version", () => {
-    const dir = join(tmpdir(), `cursus-schema-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-schema-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
     const dbPath = join(dir, "cursus.db");
-    const v1 = new CursusV1DB(dbPath);
-    const v2 = new CursusV2DB(dbPath);
-    expect(v1.getSchemaVersion()).toBe(CURSUS_SCHEMA_VERSION);
-    expect(v2.getSchemaVersion()).toBe(CURSUS_SCHEMA_VERSION);
+    const v1 = new TobaV1DB(dbPath);
+    const v2 = new TobaV2DB(dbPath);
+    expect(v1.getSchemaVersion()).toBe(TOBA_SCHEMA_VERSION);
+    expect(v2.getSchemaVersion()).toBe(TOBA_SCHEMA_VERSION);
     v1.close(); v2.close();
     try { rmSync(dir, { recursive: true }); } catch {}
   });
 
   it("isReachable returns true for valid DB", () => {
-    const dir = join(tmpdir(), `cursus-reach-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-reach-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v1 = new CursusV1DB(join(dir, "cursus.db"));
+    const v1 = new TobaV1DB(join(dir, "cursus.db"));
     expect(v1.isReachable()).toBe(true);
     v1.close();
     try { rmSync(dir, { recursive: true }); } catch {}
@@ -118,10 +118,10 @@ describe("Cursus standalone", () => {
   // PHASE 1: Onboarding
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("GET /cursus/onboarding returns initial state with provider info", async () => {
+  it("GET /toba/onboarding returns initial state with provider info", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/onboarding" });
+    const res = await app.inject({ method: "GET", url: "/toba/onboarding" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.onboarding.completed).toBeFalsy();
@@ -130,12 +130,12 @@ describe("Cursus standalone", () => {
     expect(body.provider.local).toBe(true);
   });
 
-  it("POST /cursus/onboarding persists fields", async () => {
+  it("POST /toba/onboarding persists fields", async () => {
     const { app } = create();
     await app.ready();
 
     await app.inject({
-      method: "POST", url: "/cursus/onboarding",
+      method: "POST", url: "/toba/onboarding",
       payload: {
         name: "Test Person",
         preferred_titles: "AI Engineer, MLOps",
@@ -149,7 +149,7 @@ describe("Cursus standalone", () => {
       },
     });
 
-    const res = await app.inject({ method: "GET", url: "/cursus/onboarding" });
+    const res = await app.inject({ method: "GET", url: "/toba/onboarding" });
     const ob = res.json().onboarding;
     expect(ob.name).toBe("Test Person");
     expect(ob.preferred_titles).toBe("AI Engineer, MLOps");
@@ -160,42 +160,42 @@ describe("Cursus standalone", () => {
     expect(ob.privacy_mode).toBe("local-preferred");
   });
 
-  it("POST /cursus/onboarding/complete requires name", async () => {
+  it("POST /toba/onboarding/complete requires name", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
+    const res = await app.inject({ method: "POST", url: "/toba/onboarding/complete" });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Name is required");
   });
 
-  it("POST /cursus/onboarding/complete marks completed and syncs profile", async () => {
+  it("POST /toba/onboarding/complete marks completed and syncs profile", async () => {
     const { app } = create();
     await app.ready();
 
     await app.inject({
-      method: "POST", url: "/cursus/onboarding",
+      method: "POST", url: "/toba/onboarding",
       payload: { name: "Test Person", preferred_titles: "AI Engineer, DevOps", preferred_locations: "OKC" },
     });
 
-    const res = await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
+    const res = await app.inject({ method: "POST", url: "/toba/onboarding/complete" });
     expect(res.statusCode).toBe(200);
     expect(res.json().onboarding.completed).toBeTruthy();
     expect(res.json().onboarding.completed_at).toBeDefined();
 
     // Check profile synced from blank default state.
-    const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
+    const profile = await app.inject({ method: "GET", url: "/toba/profile" });
     expect(profile.json().profile.name).toBe("Test Person");
     expect(profile.json().profile.title).toBe("AI Engineer");
     expect(profile.json().profile.location).toBe("OKC");
 
     // Check target_roles synced
-    const v2p = await app.inject({ method: "GET", url: "/cursus/profile/v2" });
+    const v2p = await app.inject({ method: "GET", url: "/toba/profile/v2" });
     const roles = JSON.parse(v2p.json().profile.target_roles);
     expect(roles).toContain("AI Engineer");
     expect(roles).toContain("DevOps");
 
     // Check receipt
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=onboarding_complete" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=onboarding_complete" });
     expect(receipts.json().receipts.length).toBe(1);
     expect(receipts.json().receipts[0].result_summary).not.toContain("Test Person");
     expect(receipts.json().receipts[0].result_summary).toContain("Privacy:");
@@ -209,12 +209,12 @@ describe("Cursus standalone", () => {
     v1.updateProfile({ title: "AI Systems Engineer / Field Service Technician" });
 
     await app.inject({
-      method: "POST", url: "/cursus/onboarding",
+      method: "POST", url: "/toba/onboarding",
       payload: { name: "Test Person", preferred_titles: "Help Desk, Desktop Support", preferred_locations: "OKC" },
     });
-    await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
+    await app.inject({ method: "POST", url: "/toba/onboarding/complete" });
 
-    const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
+    const profile = await app.inject({ method: "GET", url: "/toba/profile" });
     // Title must NOT be overwritten to "Help Desk"
     expect(profile.json().profile.title).toBe("AI Systems Engineer / Field Service Technician");
     // But name and location should still sync
@@ -231,21 +231,21 @@ describe("Cursus standalone", () => {
     v1.updateProfile({ title: "" });
 
     await app.inject({
-      method: "POST", url: "/cursus/onboarding",
+      method: "POST", url: "/toba/onboarding",
       payload: { name: "Test Person", preferred_titles: "Help Desk, Desktop Support" },
     });
-    await app.inject({ method: "POST", url: "/cursus/onboarding/complete" });
+    await app.inject({ method: "POST", url: "/toba/onboarding/complete" });
 
-    const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
+    const profile = await app.inject({ method: "GET", url: "/toba/profile" });
     expect(profile.json().profile.title).toBe("Help Desk");
   });
 
-  it("POST /cursus/onboarding/resume uploads with Velum review", async () => {
+  it("POST /toba/onboarding/resume uploads with Velum review", async () => {
     const { app } = create();
     await app.ready();
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/onboarding/resume",
+      method: "POST", url: "/toba/onboarding/resume",
       payload: { text: "Test Person, AI Engineer. SSN: 123-45-6789. 20 years experience in systems." },
     });
     expect(res.statusCode).toBe(200);
@@ -256,12 +256,12 @@ describe("Cursus standalone", () => {
     expect(res.json().resume.base_resume).not.toContain("123-45-6789");
 
     // Check onboarding state updated
-    const ob = await app.inject({ method: "GET", url: "/cursus/onboarding" });
+    const ob = await app.inject({ method: "GET", url: "/toba/onboarding" });
     expect(ob.json().onboarding.resume_uploaded).toBeTruthy();
     expect(ob.json().onboarding.resume_id).toBeDefined();
 
     // Check receipts (resume_ingest + velum_review)
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=resume_ingest" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=resume_ingest" });
     expect(receipts.json().receipts.length).toBe(1);
     expect(receipts.json().receipts[0].velum_reviewed).toBeTruthy();
   });
@@ -270,8 +270,8 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    await app.inject({ method: "POST", url: "/cursus/onboarding", payload: { privacy_mode: "cloud-allowed-with-review" } });
-    const res = await app.inject({ method: "GET", url: "/cursus/onboarding" });
+    await app.inject({ method: "POST", url: "/toba/onboarding", payload: { privacy_mode: "cloud-allowed-with-review" } });
+    const res = await app.inject({ method: "GET", url: "/toba/onboarding" });
     expect(res.json().onboarding.privacy_mode).toBe("cloud-allowed-with-review");
   });
 
@@ -279,11 +279,11 @@ describe("Cursus standalone", () => {
   // PHASE 2: Analytics
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("GET /cursus/analytics/campaign/:id returns analytics with insights", async () => {
+  it("GET /toba/analytics/campaign/:id returns analytics with insights", async () => {
     const { app } = create();
     await app.ready();
 
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Analytics Test", target_role: "SWE" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Analytics Test", target_role: "SWE" } });
     const campId = camp.json().campaign.id;
 
     // Add some applications
@@ -291,13 +291,13 @@ describe("Cursus standalone", () => {
       ["Google", "SWE", "applied"], ["Meta", "SWE", "interviewing"],
       ["Amazon", "DevOps", "responded"], ["Netflix", "SRE", "found"],
     ] as const) {
-      const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company, role } });
+      const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company, role } });
       if (status !== "found") {
-        await app.inject({ method: "PATCH", url: `/cursus/applications/${appRes.json().application.id}`, payload: { status } });
+        await app.inject({ method: "PATCH", url: `/toba/applications/${appRes.json().application.id}`, payload: { status } });
       }
     }
 
-    const res = await app.inject({ method: "GET", url: `/cursus/analytics/campaign/${campId}` });
+    const res = await app.inject({ method: "GET", url: `/toba/analytics/campaign/${campId}` });
     expect(res.statusCode).toBe(200);
     const a = res.json().analytics;
     expect(a.campaign_name).toBe("Analytics Test");
@@ -309,7 +309,7 @@ describe("Cursus standalone", () => {
     expect(Array.isArray(a.insights)).toBe(true);
 
     // Receipt for insight generation
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=insight_generate" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=insight_generate" });
     expect(receipts.json().receipts.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -317,10 +317,10 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Empty", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Empty", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
 
-    const res = await app.inject({ method: "GET", url: `/cursus/analytics/campaign/${campId}` });
+    const res = await app.inject({ method: "GET", url: `/toba/analytics/campaign/${campId}` });
     expect(res.statusCode).toBe(200);
     const a = res.json().analytics;
     expect(a.applications.total).toBe(0);
@@ -331,7 +331,7 @@ describe("Cursus standalone", () => {
   it("analytics returns 404 for nonexistent campaign", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/analytics/campaign/nonexistent" });
+    const res = await app.inject({ method: "GET", url: "/toba/analytics/campaign/nonexistent" });
     expect(res.statusCode).toBe(404);
   });
 
@@ -344,17 +344,17 @@ describe("Cursus standalone", () => {
     await app.ready();
 
     const created = await app.inject({
-      method: "POST", url: "/cursus/automation",
+      method: "POST", url: "/toba/automation",
       payload: { kind: "job_scout", title: "Daily job search", detail: "Search for SWE roles" },
     });
     expect(created.statusCode).toBe(200);
     expect(created.json().task.status).toBe("pending");
     const taskId = created.json().task.id;
 
-    const approved = await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/approve` });
+    const approved = await app.inject({ method: "POST", url: `/toba/automation/${taskId}/approve` });
     expect(approved.json().task.status).toBe("approved");
 
-    const executed = await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/execute` });
+    const executed = await app.inject({ method: "POST", url: `/toba/automation/${taskId}/execute` });
     expect(executed.json().task.status).toBe("executed");
     expect(executed.json().task.resolved_at).toBeDefined();
   });
@@ -364,14 +364,14 @@ describe("Cursus standalone", () => {
     await app.ready();
 
     const created = await app.inject({
-      method: "POST", url: "/cursus/automation",
+      method: "POST", url: "/toba/automation",
       payload: { kind: "outreach_draft", title: "Draft email" },
     });
     const taskId = created.json().task.id;
 
-    await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/reject` });
+    await app.inject({ method: "POST", url: `/toba/automation/${taskId}/reject` });
 
-    const execAttempt = await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/execute` });
+    const execAttempt = await app.inject({ method: "POST", url: `/toba/automation/${taskId}/execute` });
     expect(execAttempt.statusCode).toBe(400);
   });
 
@@ -380,13 +380,13 @@ describe("Cursus standalone", () => {
     await app.ready();
 
     const created = await app.inject({
-      method: "POST", url: "/cursus/automation",
+      method: "POST", url: "/toba/automation",
       payload: { kind: "follow_up_reminder", title: "Follow up with Google" },
     });
     const taskId = created.json().task.id;
 
     // Can't execute pending task directly
-    const res = await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/execute` });
+    const res = await app.inject({ method: "POST", url: `/toba/automation/${taskId}/execute` });
     expect(res.statusCode).toBe(400);
   });
 
@@ -395,21 +395,21 @@ describe("Cursus standalone", () => {
     await app.ready();
 
     const created = await app.inject({
-      method: "POST", url: "/cursus/automation",
+      method: "POST", url: "/toba/automation",
       payload: { kind: "stale_app_reminder", title: "Check stale apps" },
     });
     const taskId = created.json().task.id;
 
-    await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/approve` });
-    await app.inject({ method: "POST", url: `/cursus/automation/${taskId}/execute` });
+    await app.inject({ method: "POST", url: `/toba/automation/${taskId}/approve` });
+    await app.inject({ method: "POST", url: `/toba/automation/${taskId}/execute` });
 
-    const createReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=automation_create" });
+    const createReceipts = await app.inject({ method: "GET", url: "/toba/receipts?action=automation_create" });
     expect(createReceipts.json().receipts.length).toBeGreaterThanOrEqual(1);
 
-    const approveReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=automation_approve" });
+    const approveReceipts = await app.inject({ method: "GET", url: "/toba/receipts?action=automation_approve" });
     expect(approveReceipts.json().receipts.length).toBeGreaterThanOrEqual(1);
 
-    const execReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=automation_execute" });
+    const execReceipts = await app.inject({ method: "GET", url: "/toba/receipts?action=automation_execute" });
     expect(execReceipts.json().receipts.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -417,17 +417,17 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    await app.inject({ method: "POST", url: "/cursus/automation", payload: { kind: "job_scout", title: "A" } });
-    const created2 = await app.inject({ method: "POST", url: "/cursus/automation", payload: { kind: "job_scout", title: "B" } });
-    await app.inject({ method: "POST", url: `/cursus/automation/${created2.json().task.id}/approve` });
+    await app.inject({ method: "POST", url: "/toba/automation", payload: { kind: "job_scout", title: "A" } });
+    const created2 = await app.inject({ method: "POST", url: "/toba/automation", payload: { kind: "job_scout", title: "B" } });
+    await app.inject({ method: "POST", url: `/toba/automation/${created2.json().task.id}/approve` });
 
-    const pending = await app.inject({ method: "GET", url: "/cursus/automation?status=pending" });
+    const pending = await app.inject({ method: "GET", url: "/toba/automation?status=pending" });
     expect(pending.json().tasks.length).toBe(1);
 
-    const approved = await app.inject({ method: "GET", url: "/cursus/automation?status=approved" });
+    const approved = await app.inject({ method: "GET", url: "/toba/automation?status=approved" });
     expect(approved.json().tasks.length).toBe(1);
 
-    const all = await app.inject({ method: "GET", url: "/cursus/automation" });
+    const all = await app.inject({ method: "GET", url: "/toba/automation" });
     expect(all.json().tasks.length).toBe(2);
     expect(all.json().mode).toBeDefined();
   });
@@ -440,17 +440,17 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Dedup", target_role: "SWE" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Dedup", target_role: "SWE" } });
 
     const first = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { jobs: [{ company: "Acme", role: "SWE", url: "https://acme.com/1" }] },
     });
     expect(first.json().ingested).toBe(1);
     expect(first.json().duplicates_skipped).toBe(0);
 
     const second = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { jobs: [
         { company: "Acme", role: "SWE", url: "https://acme.com/1" }, // duplicate
         { company: "Beta", role: "DevOps" }, // new
@@ -459,21 +459,21 @@ describe("Cursus standalone", () => {
     expect(second.json().ingested).toBe(1);
     expect(second.json().duplicates_skipped).toBe(1);
 
-    const apps = await app.inject({ method: "GET", url: "/cursus/applications" });
+    const apps = await app.inject({ method: "GET", url: "/toba/applications" });
     expect(apps.json().applications.length).toBe(2); // not 3
   });
 
   it("job fingerprint is consistent for same company/role/url", () => {
-    const fp1 = CursusV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
-    const fp2 = CursusV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
-    const fp3 = CursusV2DB.jobFingerprint("acme", "swe", "https://acme.com/1");
+    const fp1 = TobaV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
+    const fp2 = TobaV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
+    const fp3 = TobaV2DB.jobFingerprint("acme", "swe", "https://acme.com/1");
     expect(fp1).toBe(fp2);
     expect(fp1).toBe(fp3); // case insensitive
   });
 
   it("different jobs produce different fingerprints", () => {
-    const fp1 = CursusV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
-    const fp2 = CursusV2DB.jobFingerprint("Beta", "SWE", "https://beta.com/1");
+    const fp1 = TobaV2DB.jobFingerprint("Acme", "SWE", "https://acme.com/1");
+    const fp2 = TobaV2DB.jobFingerprint("Beta", "SWE", "https://beta.com/1");
     expect(fp1).not.toBe(fp2);
   });
 
@@ -482,7 +482,7 @@ describe("Cursus standalone", () => {
     await app.ready();
 
     await app.inject({
-      method: "POST", url: "/cursus/onboarding",
+      method: "POST", url: "/toba/onboarding",
       payload: {
         name: "Tester",
         work_preference: "remote",
@@ -493,9 +493,9 @@ describe("Cursus standalone", () => {
       },
     });
 
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Test", target_role: "AI Engineer" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Test", target_role: "AI Engineer" } });
 
-    const res = await app.inject({ method: "GET", url: "/cursus/job-scout/context" });
+    const res = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
     const ctx = res.json().context;
     expect(ctx.remote_preference).toBe("remote");
     expect(ctx.salary_range).toEqual({ min: 90000, max: 140000 });
@@ -506,10 +506,10 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Meta", target_role: "SWE" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Meta", target_role: "SWE" } });
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { jobs: [{ company: "Acme", role: "SWE", source: "indeed", location: "Remote", remote: "full" }] },
     });
     const app0 = res.json().applications[0];
@@ -524,13 +524,13 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
 
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "R", target_role: "Dev" } });
-    await app.inject({ method: "POST", url: "/cursus/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
-    const second = await app.inject({ method: "POST", url: "/cursus/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "R", target_role: "Dev" } });
+    await app.inject({ method: "POST", url: "/toba/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
+    const second = await app.inject({ method: "POST", url: "/toba/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
     expect(second.json().duplicates_skipped).toBe(1);
     expect(second.json().ingested).toBe(0);
 
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=job_scout_run" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=job_scout_run" });
     const allSummaries = receipts.json().receipts.map((r: any) => r.result_summary).join(" ");
     expect(allSummaries).toContain("duplicates skipped");
   });
@@ -542,13 +542,13 @@ describe("Cursus standalone", () => {
   it("ingest with lane_id stores lane assignment", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "LaneIngest", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "LaneIngest", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const lane = await app.inject({ method: "POST", url: "/cursus/lanes", payload: { campaign_id: campId, name: "Primary", target_titles: ["Dev"], priority: "primary" } });
+    const lane = await app.inject({ method: "POST", url: "/toba/lanes", payload: { campaign_id: campId, name: "Primary", target_titles: ["Dev"], priority: "primary" } });
     const laneId = lane.json().lane.id;
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { lane_id: laneId, jobs: [{ company: "Acme", role: "Dev" }] },
     });
     expect(res.json().ingested).toBe(1);
@@ -559,10 +559,10 @@ describe("Cursus standalone", () => {
   it("ingest without lane_id still works (backwards compat)", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "NoLane", target_role: "Dev" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "NoLane", target_role: "Dev" } });
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { jobs: [{ company: "Beta", role: "Ops" }] },
     });
     expect(res.json().ingested).toBe(1);
@@ -573,10 +573,10 @@ describe("Cursus standalone", () => {
   it("ingest with nonexistent lane_id is rejected", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "BadLane", target_role: "Dev" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "BadLane", target_role: "Dev" } });
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { lane_id: "nonexistent-lane-id", jobs: [{ company: "Gamma", role: "SRE" }] },
     });
     expect(res.statusCode).toBe(400);
@@ -587,14 +587,14 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     // Create first campaign + lane
-    const camp1 = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Camp1", target_role: "Dev" } });
-    const lane1 = await app.inject({ method: "POST", url: "/cursus/lanes", payload: { campaign_id: camp1.json().campaign.id, name: "Lane1", target_titles: ["Dev"] } });
+    const camp1 = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Camp1", target_role: "Dev" } });
+    const lane1 = await app.inject({ method: "POST", url: "/toba/lanes", payload: { campaign_id: camp1.json().campaign.id, name: "Lane1", target_titles: ["Dev"] } });
     const laneId = lane1.json().lane.id;
     // Create second campaign (deactivates first)
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Camp2", target_role: "Ops" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Camp2", target_role: "Ops" } });
 
     const res = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { lane_id: laneId, jobs: [{ company: "Delta", role: "Ops" }] },
     });
     expect(res.statusCode).toBe(400);
@@ -608,21 +608,21 @@ describe("Cursus standalone", () => {
   it("fresh DB starts blank with no personal campaign data", async () => {
     const { app } = create();
     await app.ready();
-    const profile = await app.inject({ method: "GET", url: "/cursus/profile" });
+    const profile = await app.inject({ method: "GET", url: "/toba/profile" });
     expect(profile.statusCode).toBe(200);
     expect(profile.json().profile.name).toBeNull();
     expect(profile.json().profile.title).toBeNull();
     expect(profile.json().profile.summary).toBeNull();
 
-    const v2p = await app.inject({ method: "GET", url: "/cursus/profile/v2" });
+    const v2p = await app.inject({ method: "GET", url: "/toba/profile/v2" });
     expect(JSON.parse(v2p.json().profile.target_roles)).toEqual([]);
     expect(v2p.json().profile.cover_employer).toBeNull();
     expect(v2p.json().profile.nda_active).toBe(0);
 
-    const campaigns = await app.inject({ method: "GET", url: "/cursus/campaigns" });
-    const apps = await app.inject({ method: "GET", url: "/cursus/applications" });
-    const resumes = await app.inject({ method: "GET", url: "/cursus/resumes" });
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts" });
+    const campaigns = await app.inject({ method: "GET", url: "/toba/campaigns" });
+    const apps = await app.inject({ method: "GET", url: "/toba/applications" });
+    const resumes = await app.inject({ method: "GET", url: "/toba/resumes" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts" });
     expect(campaigns.json().campaigns).toEqual([]);
     expect(apps.json().applications).toEqual([]);
     expect(resumes.json().resumes).toEqual([]);
@@ -633,7 +633,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const saved = await app.inject({
-      method: "PATCH", url: "/cursus/profile",
+      method: "PATCH", url: "/toba/profile",
       payload: {
         name: "Test Person",
         email: "person@example.test",
@@ -660,46 +660,46 @@ describe("Cursus standalone", () => {
     expect(JSON.parse(saved.json().profile_v2.target_roles)).toEqual(["Platform Engineer", "SRE"]);
     expect(saved.json().onboarding.preferred_titles).toBe("Platform Engineer, SRE");
 
-    const cleared = await app.inject({ method: "POST", url: "/cursus/profile/clear" });
+    const cleared = await app.inject({ method: "POST", url: "/toba/profile/clear" });
     expect(cleared.statusCode).toBe(200);
     expect(cleared.json().profile.name).toBeNull();
     expect(cleared.json().profile.email).toBeNull();
     expect(cleared.json().onboarding.completed).toBe(0);
-    const v2p = await app.inject({ method: "GET", url: "/cursus/profile/v2" });
+    const v2p = await app.inject({ method: "GET", url: "/toba/profile/v2" });
     expect(JSON.parse(v2p.json().profile.target_roles)).toEqual([]);
   });
 
   it("factory reset script leaves a populated DB blank without touching schema", () => {
-    const dir = join(tmpdir(), `cursus-reset-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-reset-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
     const dbPath = join(dir, "cursus.db");
-    const v1 = new CursusV1DB(dbPath);
-    const v2 = new CursusV2DB(dbPath);
+    const v1 = new TobaV1DB(dbPath);
+    const v2 = new TobaV2DB(dbPath);
     v1.updateProfile({ name: "Test Person", title: "Platform Engineer" });
     v2.createCampaign("Release Test", "Engineer");
     v2.createResume("Test resume body with enough words to store.", undefined, "Engineer");
     v2.createReceipt({ action: "campaign_create", result_summary: "test receipt" });
     v1.close(); v2.close();
 
-    execFileSync("bash", [join(import.meta.dirname, "..", "scripts", "cursus-reset.sh"), "--personal-data-only", "--db", dbPath], {
+    execFileSync("bash", [join(import.meta.dirname, "..", "scripts", "toba-reset.sh"), "--personal-data-only", "--db", dbPath], {
       cwd: join(import.meta.dirname, ".."),
       stdio: "pipe",
       encoding: "utf-8",
     });
 
-    const checkV1 = new CursusV1DB(dbPath);
-    const checkV2 = new CursusV2DB(dbPath);
+    const checkV1 = new TobaV1DB(dbPath);
+    const checkV2 = new TobaV2DB(dbPath);
     expect(checkV1.getProfile().name).toBeNull();
     expect(checkV2.listCampaigns()).toEqual([]);
     expect(checkV2.listResumes()).toEqual([]);
     expect(checkV2.listReceipts()).toEqual([]);
-    expect(checkV2.getSchemaVersion()).toBe(CURSUS_SCHEMA_VERSION);
+    expect(checkV2.getSchemaVersion()).toBe(TOBA_SCHEMA_VERSION);
     checkV1.close(); checkV2.close();
     try { rmSync(dir, { recursive: true }); } catch {}
   });
 
   it("release privacy audit fails on personal strings and passes a clean scan path", () => {
-    const dir = join(tmpdir(), `cursus-audit-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-audit-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
     const script = join(import.meta.dirname, "..", "scripts", "audit-release-privacy.sh");
     writeFileSync(join(dir, "clean.txt"), "generic release-safe fixture\n");
@@ -712,7 +712,7 @@ describe("Cursus standalone", () => {
   it("V2 dashboard returns valid structure", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/dashboard" });
+    const res = await app.inject({ method: "GET", url: "/toba/dashboard" });
     expect(res.statusCode).toBe(200);
     expect(res.json().dashboard.applicationCounts).toBeDefined();
     expect(res.json().dashboard.next_action).toBeDefined();
@@ -721,7 +721,7 @@ describe("Cursus standalone", () => {
   it("V2 dashboard shows no active campaign when none exists", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/dashboard" });
+    const res = await app.inject({ method: "GET", url: "/toba/dashboard" });
     expect(res.json().dashboard.activeCampaign).toBeNull();
     expect(res.json().dashboard.next_action).toContain("Create a campaign");
   });
@@ -730,22 +730,22 @@ describe("Cursus standalone", () => {
   it("campaign create, list, update", async () => {
     const { app } = create();
     await app.ready();
-    const created = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Test", target_role: "Engineer" } });
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Test", target_role: "Engineer" } });
     expect(created.statusCode).toBe(200);
     const campId = created.json().campaign.id;
-    const list = await app.inject({ method: "GET", url: "/cursus/campaigns" });
+    const list = await app.inject({ method: "GET", url: "/toba/campaigns" });
     expect(list.json().campaigns.length).toBeGreaterThanOrEqual(1);
-    const patch = await app.inject({ method: "PATCH", url: `/cursus/campaigns/${campId}`, payload: { phase: "applying" } });
+    const patch = await app.inject({ method: "PATCH", url: `/toba/campaigns/${campId}`, payload: { phase: "applying" } });
     expect(patch.json().campaign.phase).toBe("applying");
   });
 
   // Campaign close
-  it("POST /cursus/campaigns/:id/close sets active=false and phase=closed", async () => {
+  it("POST /toba/campaigns/:id/close sets active=false and phase=closed", async () => {
     const { app } = create();
     await app.ready();
-    const created = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "CloseMe", target_role: "Dev" } });
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "CloseMe", target_role: "Dev" } });
     const campId = created.json().campaign.id;
-    const closed = await app.inject({ method: "POST", url: `/cursus/campaigns/${campId}/close` });
+    const closed = await app.inject({ method: "POST", url: `/toba/campaigns/${campId}/close` });
     expect(closed.json().campaign.active).toBeFalsy();
     expect(closed.json().campaign.phase).toBe("closed");
   });
@@ -753,10 +753,10 @@ describe("Cursus standalone", () => {
   it("closing a campaign clears it from dashboard", async () => {
     const { app } = create();
     await app.ready();
-    const created = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "ActiveOne", target_role: "Engineer" } });
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "ActiveOne", target_role: "Engineer" } });
     const campId = created.json().campaign.id;
-    await app.inject({ method: "POST", url: `/cursus/campaigns/${campId}/close` });
-    const dash = await app.inject({ method: "GET", url: "/cursus/dashboard" });
+    await app.inject({ method: "POST", url: `/toba/campaigns/${campId}/close` });
+    const dash = await app.inject({ method: "GET", url: "/toba/dashboard" });
     expect(dash.json().dashboard.activeCampaign).toBeNull();
   });
 
@@ -764,16 +764,16 @@ describe("Cursus standalone", () => {
   it("creating a new campaign deactivates the previous one", async () => {
     const { app, v2 } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "First", target_role: "Dev" } });
-    const second = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Second", target_role: "Ops" } });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "First", target_role: "Dev" } });
+    const second = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Second", target_role: "Ops" } });
     expect(v2.countActiveCampaigns()).toBe(1);
     expect(v2.getActiveCampaign()!.id).toBe(second.json().campaign.id);
   });
 
   it("only one active campaign at any time (DB level)", () => {
-    const dir = join(tmpdir(), `cursus-single-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-single-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v2 = new CursusV2DB(join(dir, "cursus.db"));
+    const v2 = new TobaV2DB(join(dir, "cursus.db"));
     v2.createCampaign("A", "Role A");
     v2.createCampaign("B", "Role B");
     v2.createCampaign("C", "Role C");
@@ -787,10 +787,10 @@ describe("Cursus standalone", () => {
   it("application create requires campaign_id, company, role", async () => {
     const { app } = create();
     await app.ready();
-    const bad = await app.inject({ method: "POST", url: "/cursus/applications", payload: { company: "Acme" } });
+    const bad = await app.inject({ method: "POST", url: "/toba/applications", payload: { company: "Acme" } });
     expect(bad.statusCode).toBe(400);
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Test", target_role: "Eng" } });
-    const good = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Test", target_role: "Eng" } });
+    const good = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
     expect(good.statusCode).toBe(200);
     expect(good.json().application.company).toBe("Acme");
   });
@@ -799,23 +799,23 @@ describe("Cursus standalone", () => {
   it("outreach stealth: staged -> approved transition enforced", async () => {
     const { app } = create();
     await app.ready();
-    const staged = await app.inject({ method: "POST", url: "/cursus/outreach/stage", payload: { type: "email", subject: "Hi", body: "Body text here" } });
+    const staged = await app.inject({ method: "POST", url: "/toba/outreach/stage", payload: { type: "email", subject: "Hi", body: "Body text here" } });
     const id = staged.json().outreach.id;
     expect(staged.json().outreach.status).toBe("staged");
-    const approved = await app.inject({ method: "POST", url: `/cursus/outreach/${id}/approve` });
+    const approved = await app.inject({ method: "POST", url: `/toba/outreach/${id}/approve` });
     expect(approved.json().outreach.status).toBe("approved");
-    const re = await app.inject({ method: "POST", url: `/cursus/outreach/${id}/approve` });
+    const re = await app.inject({ method: "POST", url: `/toba/outreach/${id}/approve` });
     expect(re.statusCode).toBe(400);
   });
 
   it("outreach reject only works on staged", async () => {
     const { app } = create();
     await app.ready();
-    const staged = await app.inject({ method: "POST", url: "/cursus/outreach/stage", payload: { type: "email", subject: "Hi", body: "Body text here" } });
+    const staged = await app.inject({ method: "POST", url: "/toba/outreach/stage", payload: { type: "email", subject: "Hi", body: "Body text here" } });
     const id = staged.json().outreach.id;
-    const rejected = await app.inject({ method: "POST", url: `/cursus/outreach/${id}/reject` });
+    const rejected = await app.inject({ method: "POST", url: `/toba/outreach/${id}/reject` });
     expect(rejected.statusCode).toBe(200);
-    const again = await app.inject({ method: "POST", url: `/cursus/outreach/${id}/reject` });
+    const again = await app.inject({ method: "POST", url: `/toba/outreach/${id}/reject` });
     expect(again.statusCode).toBe(400);
   });
 
@@ -830,7 +830,7 @@ describe("Cursus standalone", () => {
     resetConfigFromEnv();
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/dux/chat", payload: { session_id: "x", message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { session_id: "x", message: "hi" } });
     expect(res.statusCode).toBe(503);
     const body = res.json();
     expect(body.error.toLowerCase()).toContain("provider");
@@ -842,15 +842,82 @@ describe("Cursus standalone", () => {
   it("resume upload works with Velum review", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/resumes/upload", payload: { text: "This is my resume with enough content to pass validation" } });
+    const res = await app.inject({ method: "POST", url: "/toba/resumes/upload", payload: { text: "This is my resume with enough content to pass validation" } });
     expect(res.statusCode).toBe(200);
     expect(res.json().velum.reviewed).toBe(true);
+  });
+
+  it("resume upload accepts an actual file payload", async () => {
+    const { app } = create();
+    await app.ready();
+    const fileText = "Jane Candidate\nHelp desk technician with CompTIA A+ and customer support experience.";
+    const res = await app.inject({
+      method: "POST",
+      url: "/toba/resumes/upload",
+      payload: {
+        file: {
+          name: "resume.txt",
+          type: "text/plain",
+          base64: Buffer.from(fileText, "utf8").toString("base64"),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().upload.source).toBe("file");
+    expect(res.json().upload.filename).toBe("resume.txt");
+    expect(res.json().resume.base_resume).toContain("CompTIA A+");
+    expect(res.json().resume.filename).toBe("resume.txt");
+    expect(res.json().resume.velum_reviewed).toBe(1);
+  });
+
+  it("resume upload persists and appears in GET /toba/resumes with metadata", async () => {
+    const { app } = create();
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/toba/resumes/upload",
+      payload: {
+        tailored_for: "Help Desk",
+        file: {
+          name: "helpdesk-resume.txt",
+          type: "text/plain",
+          base64: Buffer.from("Help desk resume with ticketing, imaging, CompTIA A+, and customer support.", "utf8").toString("base64"),
+        },
+      },
+    });
+    const listed = await app.inject({ method: "GET", url: "/toba/resumes" });
+    expect(listed.statusCode).toBe(200);
+    const resume = listed.json().resumes[0];
+    expect(resume.filename).toBe("helpdesk-resume.txt");
+    expect(resume.tailored_for).toBe("Help Desk");
+    expect(resume.base_resume).toContain("ticketing");
+    expect(resume.summary).toContain("CompTIA A+");
+    expect(resume.uploaded_at).toBeTruthy();
+    expect(resume.velum_fields_redacted).toBe("[]");
+  });
+
+  it("resume upload rejects unsupported file types", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "POST",
+      url: "/toba/resumes/upload",
+      payload: {
+        file: {
+          name: "resume.bin",
+          type: "application/octet-stream",
+          base64: Buffer.from("not a supported resume file", "utf8").toString("base64"),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Unsupported resume file type");
   });
 
   it("resume upload rejects short text", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/resumes/upload", payload: { text: "too short" } });
+    const res = await app.inject({ method: "POST", url: "/toba/resumes/upload", payload: { text: "too short" } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -858,7 +925,7 @@ describe("Cursus standalone", () => {
   it("velum review endpoint redacts SSN", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/velum/review", payload: { text: "SSN 123-45-6789", context: "profile" } });
+    const res = await app.inject({ method: "POST", url: "/toba/velum/review", payload: { text: "SSN 123-45-6789", context: "profile" } });
     expect(res.json().velum.fields_redacted).toContain("ssn");
     expect(res.json().velum.output).toContain("[SSN-REDACTED]");
   });
@@ -866,14 +933,14 @@ describe("Cursus standalone", () => {
   it("velum passes clean text through", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/velum/review", payload: { text: "I am an engineer" } });
+    const res = await app.inject({ method: "POST", url: "/toba/velum/review", payload: { text: "I am an engineer" } });
     expect(res.json().velum.redacted).toBe(false);
   });
 
   it("outreach staging applies velum review", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/outreach/stage", payload: { type: "email", subject: "Intro", body: "Call me at 405-555-9999" } });
+    const res = await app.inject({ method: "POST", url: "/toba/outreach/stage", payload: { type: "email", subject: "Intro", body: "Call me at 405-555-9999" } });
     expect(res.json().velum.fields_redacted).toContain("phone");
     expect(res.json().outreach.body).toContain("[PHONE-REDACTED]");
   });
@@ -882,8 +949,8 @@ describe("Cursus standalone", () => {
   it("campaign create generates a receipt", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Receipted", target_role: "Dev" } });
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=campaign_create" });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Receipted", target_role: "Dev" } });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=campaign_create" });
     expect(receipts.json().receipts.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -891,17 +958,17 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     for (let i = 0; i < 5; i++) {
-      await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: `C${i}`, target_role: "Dev" } });
+      await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: `C${i}`, target_role: "Dev" } });
     }
-    const limited = await app.inject({ method: "GET", url: "/cursus/receipts?limit=2" });
+    const limited = await app.inject({ method: "GET", url: "/toba/receipts?limit=2" });
     expect(limited.json().receipts.length).toBe(2);
   });
 
   // Provider
-  it("GET /cursus/provider returns provider metadata", async () => {
+  it("GET /toba/provider returns provider metadata", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/provider" });
+    const res = await app.inject({ method: "GET", url: "/toba/provider" });
     expect(res.json().provider.local).toBe(true);
   });
 
@@ -909,8 +976,8 @@ describe("Cursus standalone", () => {
   it("job-scout context returns campaign-derived queries", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "AI Search", target_role: "AI Engineer, MLOps" } });
-    const res = await app.inject({ method: "GET", url: "/cursus/job-scout/context" });
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "AI Search", target_role: "AI Engineer, MLOps" } });
+    const res = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
     expect(res.json().context.all_target_roles).toContain("AI Engineer");
     expect(res.json().context.all_target_roles).toContain("MLOps");
   });
@@ -918,20 +985,34 @@ describe("Cursus standalone", () => {
   it("job-scout ingest requires active campaign", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
+    const res = await app.inject({ method: "POST", url: "/toba/job-scout/ingest", payload: { jobs: [{ company: "X", role: "Y" }] } });
     expect(res.statusCode).toBe(400);
   });
 
-  it("target roles: primary from campaign, secondary from profile", async () => {
+  it("target roles: campaign value wins exclusively (no silent profile union)", async () => {
+    // V7 design: every effective field has ONE source. When the campaign sets
+    // target_role, profile_v2 roles are NOT silently appended — the user must
+    // edit the campaign explicitly to add them.
     const { app, v2 } = create();
     await app.ready();
     v2.updateProfileV2({ target_roles: JSON.stringify(["DevOps", "SRE", "AI Engineer"]) });
-    await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Focus", target_role: "AI Engineer" } });
-    const ctx = await app.inject({ method: "GET", url: "/cursus/job-scout/context" });
-    const roles = ctx.json().context.all_target_roles;
-    expect(roles[0]).toBe("AI Engineer");
-    expect(roles).toContain("DevOps");
-    expect(new Set(roles).size).toBe(roles.length); // no duplicates
+    await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Focus", target_role: "AI Engineer" } });
+    const ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    const body = ctx.json();
+    expect(body.effective.target_roles.value).toEqual(["AI Engineer"]);
+    expect(body.effective.target_roles.source).toBe("campaign");
+    expect(body.context.all_target_roles).toEqual(["AI Engineer"]); // no silent union
+  });
+
+  it("target roles: profile_v2 is used only when campaign target_role is empty", async () => {
+    const { app, v2 } = create();
+    await app.ready();
+    v2.updateProfileV2({ target_roles: JSON.stringify(["DevOps", "SRE"]) });
+    // No active campaign -> falls back to profile
+    const ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    const body = ctx.json();
+    expect(body.effective.target_roles.value).toEqual(["DevOps", "SRE"]);
+    expect(body.effective.target_roles.source).toBe("profile");
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -939,22 +1020,19 @@ describe("Cursus standalone", () => {
   // ══════════════════════════════════════════════════════════════════════════
 
   it("shared DB: two instances don't corrupt", () => {
-    const dir = join(tmpdir(), `cursus-shared-${randomUUID()}`);
+    const dir = join(tmpdir(), `toba-shared-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v2a = new CursusV2DB(join(dir, "cursus.db"));
-    const v2b = new CursusV2DB(join(dir, "cursus.db"));
+    const v2a = new TobaV2DB(join(dir, "cursus.db"));
+    const v2b = new TobaV2DB(join(dir, "cursus.db"));
     const camp = v2a.createCampaign("From A", "Engineer");
     expect(v2b.getCampaign(camp.id)!.name).toBe("From A");
     v2a.close(); v2b.close();
     try { rmSync(dir, { recursive: true }); } catch {}
   });
 
-  it("server refuses non-localhost binding without auth token", () => {
-    // The actual guard moved to network.ts; server.ts wires it.
-    const netSrc = readFileSync(join(import.meta.dirname, "network.ts"), "utf-8");
-    expect(SERVER_SOURCE).toContain("CURSUS_AUTH_TOKEN");
-    expect(netSrc).toContain("Refusing to start unauthenticated");
-    expect(SERVER_SOURCE).toContain("process.exit(1)");
+  it("server does not require auth", () => {
+    expect(SERVER_SOURCE).not.toContain("CURSUS_AUTH_TOKEN");
+    expect(SERVER_SOURCE).not.toContain("shouldAllowRequest");
   });
 
   it("routes don't carry provider dispatch logic — only the openrouter_configured status flag is allowed", () => {
@@ -963,7 +1041,7 @@ describe("Cursus standalone", () => {
     expect(routesSrc).not.toMatch(/case\s+['"]openrouter['"]/);
     expect(routesSrc).not.toMatch(/case\s+['"]anthropic['"]/);
     expect(routesSrc).not.toMatch(/case\s+['"]openai['"]/);
-    expect(routesSrc).not.toMatch(/Bearer\s+\$\{[^}]*api_key/i); // no auth-header construction here
+    expect(routesSrc).not.toMatch(/Bearer\s+\$\{[^}]*api_key/i); // no auth-header construction in routes
     expect(routesSrc).not.toMatch(/chat\/completions/); // no adapter URLs here
   });
 
@@ -982,11 +1060,11 @@ describe("Cursus standalone", () => {
   it("search lane CRUD: create, list, update, delete", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Lane Test", target_role: "IT Support" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Lane Test", target_role: "IT Support" } });
     const campId = camp.json().campaign.id;
 
     const created = await app.inject({
-      method: "POST", url: "/cursus/lanes",
+      method: "POST", url: "/toba/lanes",
       payload: {
         campaign_id: campId, name: "Help Desk",
         target_titles: ["Help Desk Technician", "Desktop Support"],
@@ -1005,30 +1083,30 @@ describe("Cursus standalone", () => {
     expect(lane.active).toBeTruthy();
 
     // List
-    const list = await app.inject({ method: "GET", url: `/cursus/lanes?campaign_id=${campId}` });
+    const list = await app.inject({ method: "GET", url: `/toba/lanes?campaign_id=${campId}` });
     expect(list.json().lanes.length).toBe(1);
 
     // Update
-    const updated = await app.inject({ method: "PATCH", url: `/cursus/lanes/${lane.id}`, payload: { priority: "secondary" } });
+    const updated = await app.inject({ method: "PATCH", url: `/toba/lanes/${lane.id}`, payload: { priority: "secondary" } });
     expect(updated.json().lane.priority).toBe("secondary");
 
     // Delete
-    const del = await app.inject({ method: "DELETE", url: `/cursus/lanes/${lane.id}` });
+    const del = await app.inject({ method: "DELETE", url: `/toba/lanes/${lane.id}` });
     expect(del.statusCode).toBe(200);
-    const afterDel = await app.inject({ method: "GET", url: `/cursus/lanes?campaign_id=${campId}` });
+    const afterDel = await app.inject({ method: "GET", url: `/toba/lanes?campaign_id=${campId}` });
     expect(afterDel.json().lanes.length).toBe(0);
   });
 
   it("lane-aware job scout context returns search queries per lane", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Multi-Lane", target_role: "IT" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Multi-Lane", target_role: "IT" } });
     const campId = camp.json().campaign.id;
 
-    await app.inject({ method: "POST", url: "/cursus/lanes", payload: { campaign_id: campId, name: "Help Desk", target_titles: ["Help Desk", "IT Support"], locations: ["Remote"], priority: "primary" } });
-    await app.inject({ method: "POST", url: "/cursus/lanes", payload: { campaign_id: campId, name: "Cyber", target_titles: ["SOC Analyst"], locations: ["OKC"], priority: "stretch" } });
+    await app.inject({ method: "POST", url: "/toba/lanes", payload: { campaign_id: campId, name: "Help Desk", target_titles: ["Help Desk", "IT Support"], locations: ["Remote"], priority: "primary" } });
+    await app.inject({ method: "POST", url: "/toba/lanes", payload: { campaign_id: campId, name: "Cyber", target_titles: ["SOC Analyst"], locations: ["OKC"], priority: "stretch" } });
 
-    const ctx = await app.inject({ method: "GET", url: "/cursus/job-scout/lane-context" });
+    const ctx = await app.inject({ method: "GET", url: "/toba/job-scout/lane-context" });
     expect(ctx.statusCode).toBe(200);
     const body = ctx.json();
     expect(body.lanes.length).toBe(2);
@@ -1041,7 +1119,7 @@ describe("Cursus standalone", () => {
   it("lane requires campaign_id and name", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/lanes", payload: { name: "Nope" } });
+    const res = await app.inject({ method: "POST", url: "/toba/lanes", payload: { name: "Nope" } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -1052,12 +1130,12 @@ describe("Cursus standalone", () => {
   it("job evaluation CRUD", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Eval", target_role: "Dev" } });
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Eval", target_role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
     const appId = appRes.json().application.id;
 
     const ev = await app.inject({
-      method: "POST", url: "/cursus/evaluations",
+      method: "POST", url: "/toba/evaluations",
       payload: {
         application_id: appId,
         role_summary: "Standard dev role",
@@ -1074,17 +1152,17 @@ describe("Cursus standalone", () => {
     expect(ev.json().evaluation.overall_grade).toBe("B");
     expect(ev.json().evaluation.legitimacy_grade).toBe("A");
 
-    const list = await app.inject({ method: "GET", url: `/cursus/evaluations?application_id=${appId}` });
+    const list = await app.inject({ method: "GET", url: `/toba/evaluations?application_id=${appId}` });
     expect(list.json().evaluations.length).toBe(1);
 
-    const single = await app.inject({ method: "GET", url: `/cursus/evaluations/${ev.json().evaluation.id}` });
+    const single = await app.inject({ method: "GET", url: `/toba/evaluations/${ev.json().evaluation.id}` });
     expect(single.json().evaluation.role_summary).toBe("Standard dev role");
   });
 
   it("job evaluation requires application_id, role_summary, fit_analysis", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/evaluations", payload: { role_summary: "Nope" } });
+    const res = await app.inject({ method: "POST", url: "/toba/evaluations", payload: { role_summary: "Nope" } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -1096,7 +1174,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const created = await app.inject({
-      method: "POST", url: "/cursus/stories",
+      method: "POST", url: "/toba/stories",
       payload: {
         title: "Reference Platform Architecture",
         format: "star_reflection",
@@ -1115,17 +1193,17 @@ describe("Cursus standalone", () => {
     expect(story.format).toBe("star_reflection");
     expect(JSON.parse(story.tags)).toContain("architecture");
 
-    const list = await app.inject({ method: "GET", url: "/cursus/stories" });
+    const list = await app.inject({ method: "GET", url: "/toba/stories" });
     expect(list.json().stories.length).toBe(1);
 
-    const updated = await app.inject({ method: "PATCH", url: `/cursus/stories/${story.id}`, payload: { reflection: "Updated reflection" } });
+    const updated = await app.inject({ method: "PATCH", url: `/toba/stories/${story.id}`, payload: { reflection: "Updated reflection" } });
     expect(updated.json().story.reflection).toBe("Updated reflection");
   });
 
   it("story requires STAR fields", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/stories", payload: { title: "Incomplete", situation: "Yep" } });
+    const res = await app.inject({ method: "POST", url: "/toba/stories", payload: { title: "Incomplete", situation: "Yep" } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -1136,18 +1214,18 @@ describe("Cursus standalone", () => {
   it("follow-up cadence: set and record", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Follow", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Follow", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company: "Acme", role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company: "Acme", role: "Dev" } });
     const appId = appRes.json().application.id;
 
-    await app.inject({ method: "PATCH", url: `/cursus/applications/${appId}`, payload: { status: "applied" } });
+    await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
-    const cadence = await app.inject({ method: "POST", url: `/cursus/applications/${appId}/cadence`, payload: { days: 5 } });
+    const cadence = await app.inject({ method: "POST", url: `/toba/applications/${appId}/cadence`, payload: { days: 5 } });
     expect(cadence.json().application.follow_up_cadence_days).toBe(5);
     expect(cadence.json().application.follow_up_at).toBeDefined();
 
-    const followUp = await app.inject({ method: "POST", url: `/cursus/applications/${appId}/follow-up` });
+    const followUp = await app.inject({ method: "POST", url: `/toba/applications/${appId}/follow-up` });
     expect(followUp.json().application.follow_up_count).toBe(1);
     expect(followUp.json().application.last_follow_up_at).toBeDefined();
   });
@@ -1155,10 +1233,10 @@ describe("Cursus standalone", () => {
   it("fresh application is NOT stale (created_at guard)", async () => {
     const { app, v2 } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Fresh", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Fresh", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company: "NewCo", role: "Dev" } });
-    await app.inject({ method: "PATCH", url: `/cursus/applications/${appRes.json().application.id}`, payload: { status: "applied" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company: "NewCo", role: "Dev" } });
+    await app.inject({ method: "PATCH", url: `/toba/applications/${appRes.json().application.id}`, payload: { status: "applied" } });
 
     // 7-day threshold — app was just created, should NOT be stale
     const stale = v2.getStaleApplications(7);
@@ -1168,11 +1246,11 @@ describe("Cursus standalone", () => {
   it("old application with no follow_up_at IS stale", async () => {
     const { app, v2 } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Old", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Old", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company: "OldCo", role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company: "OldCo", role: "Dev" } });
     const appId = appRes.json().application.id;
-    await app.inject({ method: "PATCH", url: `/cursus/applications/${appId}`, payload: { status: "applied" } });
+    await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
     // Backdate created_at to 10 days ago
     v2["db"].prepare("UPDATE cursus_applications SET created_at = ? WHERE id = ?")
@@ -1186,11 +1264,11 @@ describe("Cursus standalone", () => {
   it("application with past follow_up_at IS stale", async () => {
     const { app, v2 } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Past", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Past", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company: "PastCo", role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company: "PastCo", role: "Dev" } });
     const appId = appRes.json().application.id;
-    await app.inject({ method: "PATCH", url: `/cursus/applications/${appId}`, payload: { status: "applied" } });
+    await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
     // Backdate both created_at and follow_up_at
     const old = new Date(Date.now() - 10 * 86_400_000).toISOString();
@@ -1204,11 +1282,11 @@ describe("Cursus standalone", () => {
   it("application with future follow_up_at is NOT stale", async () => {
     const { app, v2 } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Future", target_role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Future", target_role: "Dev" } });
     const campId = camp.json().campaign.id;
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: campId, company: "FutureCo", role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: campId, company: "FutureCo", role: "Dev" } });
     const appId = appRes.json().application.id;
-    await app.inject({ method: "PATCH", url: `/cursus/applications/${appId}`, payload: { status: "applied" } });
+    await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
     // Backdate created_at but set follow_up_at in the future
     v2["db"].prepare("UPDATE cursus_applications SET created_at = ?, follow_up_at = ? WHERE id = ?")
@@ -1221,7 +1299,7 @@ describe("Cursus standalone", () => {
   it("cadence rejects invalid days", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/applications/fake/cadence", payload: { days: 0 } });
+    const res = await app.inject({ method: "POST", url: "/toba/applications/fake/cadence", payload: { days: 0 } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -1232,12 +1310,12 @@ describe("Cursus standalone", () => {
   it("application legitimacy update", async () => {
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Legit", target_role: "Dev" } });
-    const appRes = await app.inject({ method: "POST", url: "/cursus/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Legit", target_role: "Dev" } });
+    const appRes = await app.inject({ method: "POST", url: "/toba/applications", payload: { campaign_id: camp.json().campaign.id, company: "Acme", role: "Dev" } });
     const appId = appRes.json().application.id;
 
     const updated = await app.inject({
-      method: "PATCH", url: `/cursus/applications/${appId}/legitimacy`,
+      method: "PATCH", url: `/toba/applications/${appId}/legitimacy`,
       payload: {
         legitimacy_tier: "verified",
         date_first_seen: "2026-05-20",
@@ -1253,8 +1331,8 @@ describe("Cursus standalone", () => {
   // V6: Schema version
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("schema is now v6", () => {
-    expect(CURSUS_SCHEMA_VERSION).toBe(6);
+  it("schema is now v8", () => {
+    expect(TOBA_SCHEMA_VERSION).toBe(8);
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1272,12 +1350,12 @@ describe("Cursus standalone", () => {
     expect(body.bridge_enabled).toBe(false);
   });
 
-  it("GET /cursus/provider returns full status without leaking api key", async () => {
+  it("GET /toba/provider returns full status without leaking api key", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "openai", model: "gpt-test", api_key: "test-openai-secret", base_url: "https://api.example.com" });
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/provider" });
+    const res = await app.inject({ method: "GET", url: "/toba/provider" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.provider.provider).toBe("openai");
@@ -1292,11 +1370,11 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "none", model: "none", api_key: "", base_url: "" });
   });
 
-  it("PATCH /cursus/provider selects providers and rejects unknown ones", async () => {
+  it("PATCH /toba/provider selects providers and rejects unknown ones", async () => {
     const { app } = create();
     await app.ready();
     const ok = await app.inject({
-      method: "PATCH", url: "/cursus/provider",
+      method: "PATCH", url: "/toba/provider",
       payload: { provider: "echo", model: "debug" },
     });
     expect(ok.statusCode).toBe(200);
@@ -1304,7 +1382,7 @@ describe("Cursus standalone", () => {
     expect(ok.json().provider.local).toBe(true);
 
     const bad = await app.inject({
-      method: "PATCH", url: "/cursus/provider",
+      method: "PATCH", url: "/toba/provider",
       payload: { provider: "nonexistent-vendor" },
     });
     expect(bad.statusCode).toBe(400);
@@ -1317,7 +1395,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/cursus/provider",
+      method: "PATCH", url: "/toba/provider",
       payload: { provider: "openai", model: "gpt-test", api_key: "test-openai-key" },
     });
     expect(res.statusCode).toBe(400);
@@ -1335,7 +1413,7 @@ describe("Cursus standalone", () => {
     resetConfigFromEnv();
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/dux/chat", payload: { message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { message: "hi" } });
     expect(res.statusCode).toBe(503); // misconfigured-from-env path -> "provider_misconfigured"
     delete process.env["CURSUS_LOCAL_ONLY"];
     resetConfigFromEnv();
@@ -1348,7 +1426,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/cursus/dux/chat",
+      method: "POST", url: "/toba/dux/chat",
       payload: { message: "my email is person@example.test — what should I focus on?" },
     });
     expect(res.statusCode).toBe(200);
@@ -1363,9 +1441,9 @@ describe("Cursus standalone", () => {
     expect(body.reply).toContain("[EMAIL-REDACTED]");
     expect(body.reply).not.toContain("person@example.test");
 
-    const velumReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=velum_review" });
+    const velumReceipts = await app.inject({ method: "GET", url: "/toba/receipts?action=velum_review" });
     expect(velumReceipts.json().receipts.length).toBeGreaterThan(0);
-    const modelReceipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=model_call" });
+    const modelReceipts = await app.inject({ method: "GET", url: "/toba/receipts?action=model_call" });
     expect(modelReceipts.json().receipts.length).toBeGreaterThan(0);
     const r0 = modelReceipts.json().receipts[0];
     expect(r0.provider).toBe("echo");
@@ -1380,7 +1458,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/cursus/dux/chat",
+      method: "POST", url: "/toba/dux/chat",
       payload: { message: "call me at 555-123-4567 or 4111 1111 1111 1111" },
     });
     expect(res.statusCode).toBe(200);
@@ -1397,14 +1475,113 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "ollama", model: "no-such-model", base_url: "http://127.0.0.1:1" });
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/cursus/dux/chat", payload: { message: "hi", velum: false } });
+    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { message: "hi", velum: false } });
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
     expect(res.json().ok).toBe(false);
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=model_call" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=model_call" });
     const failing = receipts.json().receipts.find((r: { errors: string | null }) => r.errors);
     expect(failing).toBeTruthy();
     expect(failing.provider).toBe("ollama");
     applyConfigPatch({ provider: "none", model: "none", base_url: "" });
+  });
+
+  it("Dux chat with include_resume=true includes useful redacted resume context", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "debug" });
+    const { app } = create();
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/toba/resumes/upload",
+      payload: {
+        file: {
+          name: "resume.txt",
+          type: "text/plain",
+          base64: Buffer.from("Alex Candidate\nEmail alex@example.test\nCompTIA A+ help desk technician with ticketing, Windows imaging, and customer support experience.", "utf8").toString("base64"),
+        },
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/toba/dux/agents/strategist/chat",
+      payload: {
+        message: "Review my resume.",
+        include_context: { profile: false, resume: true, campaign: false, applications: false, receipts: false },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.context.resume_included).toBe(true);
+    expect(body.reply).toContain("RESUME SUMMARY");
+    expect(body.reply).toContain("CompTIA A+");
+    expect(body.reply).toContain("ticketing");
+    expect(body.reply).toContain("[EMAIL-REDACTED]");
+    expect(body.reply).not.toContain("alex@example.test");
+    expect(body.context.velum_redacted).toBe(true);
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  it("Dux chat includes active campaign applications/jobs with useful fields", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "debug" });
+    const { app } = create();
+    await app.ready();
+    const campaign = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "A+ Search", target_role: "Help Desk" } });
+    const campaignId = campaign.json().campaign.id;
+    await app.inject({
+      method: "POST",
+      url: "/toba/applications",
+      payload: {
+        campaign_id: campaignId,
+        company: "Acme MSP",
+        role: "Desktop Support Technician",
+        location: "Oklahoma City",
+        url: "https://example.test/job",
+        source: "manual",
+        match_score: 84,
+        notes: "Good A+ fit; Windows imaging and tickets.",
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/toba/dux/agents/strategist/chat",
+      payload: {
+        message: "Review the jobs I added.",
+        include_context: { profile: false, resume: false, campaign: true, applications: true, receipts: false },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.context.campaign_included).toBe(true);
+    expect(body.context.applications_included).toBe(1);
+    expect(body.reply).toContain("TARGET JOBS/APPLICATIONS");
+    expect(body.reply).toContain("Acme MSP");
+    expect(body.reply).toContain("Desktop Support Technician");
+    expect(body.reply).toContain("Oklahoma City");
+    expect(body.reply).toContain("https://example.test/job");
+    applyConfigPatch({ provider: "none", model: "none" });
+  });
+
+  it("Dux response metadata reports included context", async () => {
+    const { applyConfigPatch } = await import("./provider.js");
+    applyConfigPatch({ provider: "echo", model: "debug" });
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({
+      method: "POST",
+      url: "/toba/dux/chat",
+      payload: { message: "status", include_context: { profile: true, resume: true, campaign: true, applications: true, receipts: true } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().context).toMatchObject({
+      profile_included: true,
+      resume_included: false,
+      campaign_included: false,
+      applications_included: 0,
+      receipts_included: expect.any(Number),
+      velum_reviewed: true,
+    });
+    applyConfigPatch({ provider: "none", model: "none" });
   });
 
   it("Job Scout context endpoint is standalone (no Squidley required)", async () => {
@@ -1412,7 +1589,7 @@ describe("Cursus standalone", () => {
     delete process.env["CURSUS_BRIDGE_URL"];
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/job-scout/context" });
+    const res = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.ok).toBe(true);
@@ -1426,15 +1603,15 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "echo", model: "test-model" });
     const { app } = create();
     await app.ready();
-    const camp = await app.inject({ method: "POST", url: "/cursus/campaigns", payload: { name: "Ingest test", target_role: "DevOps" } });
+    const camp = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Ingest test", target_role: "DevOps" } });
     const cid = camp.json().campaign.id;
     void cid;
     const ingest = await app.inject({
-      method: "POST", url: "/cursus/job-scout/ingest",
+      method: "POST", url: "/toba/job-scout/ingest",
       payload: { jobs: [{ company: "Acme", role: "SRE", source: "manual" }] },
     });
     expect(ingest.statusCode).toBe(200);
-    const receipts = await app.inject({ method: "GET", url: "/cursus/receipts?action=job_scout_run" });
+    const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=job_scout_run" });
     const r = receipts.json().receipts[0];
     expect(r.provider).toBe("echo");
     expect(r.model).toBe("test-model");
@@ -1479,10 +1656,10 @@ describe("Cursus standalone", () => {
   // PHASE 6: Per-Dux-agent provider/model selection
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("GET /cursus/dux/agents returns the seeded registry", async () => {
+  it("GET /toba/dux/agents returns the seeded registry", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/cursus/dux/agents" });
+    const res = await app.inject({ method: "GET", url: "/toba/dux/agents" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(Array.isArray(body.agents)).toBe(true);
@@ -1500,11 +1677,11 @@ describe("Cursus standalone", () => {
     expect(body.default_provider).toBeDefined();
   });
 
-  it("PATCH /cursus/dux/agents/:id persists per-agent provider/model and never leaks api_key", async () => {
+  it("PATCH /toba/dux/agents/:id persists per-agent provider/model and never leaks api_key", async () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      method: "PATCH", url: "/toba/dux/agents/strategist",
       payload: {
         provider: "openrouter",
         model: "deepseek/deepseek-v4-pro",
@@ -1524,7 +1701,7 @@ describe("Cursus standalone", () => {
     expect(JSON.stringify(body)).not.toContain("test-openrouter-strategist-secret");
 
     // Verify persistence via GET
-    const reread = await app.inject({ method: "GET", url: "/cursus/dux/agents/strategist" });
+    const reread = await app.inject({ method: "GET", url: "/toba/dux/agents/strategist" });
     expect(reread.json().agent.provider).toBe("openrouter");
     expect(JSON.stringify(reread.json())).not.toContain("test-openrouter-strategist-secret");
   });
@@ -1534,11 +1711,11 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "echo", model: "global-default" });
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/strategist",      payload: { provider: "echo", model: "strategist-model" } });
-    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { provider: "echo", model: "reviewer-model"   } });
+    await app.inject({ method: "PATCH", url: "/toba/dux/agents/strategist",      payload: { provider: "echo", model: "strategist-model" } });
+    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { provider: "echo", model: "reviewer-model"   } });
 
-    const a = await app.inject({ method: "POST", url: "/cursus/dux/agents/strategist/chat",      payload: { message: "weekly plan" } });
-    const b = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "tighten bullets"  } });
+    const a = await app.inject({ method: "POST", url: "/toba/dux/agents/strategist/chat",      payload: { message: "weekly plan" } });
+    const b = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "tighten bullets"  } });
     expect(a.statusCode).toBe(200);
     expect(b.statusCode).toBe(200);
     expect(a.json().provider.model).toBe("strategist-model");
@@ -1552,7 +1729,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     // outreach-drafter has no override yet
-    const res = await app.inject({ method: "POST", url: "/cursus/dux/agents/outreach-drafter/chat", payload: { message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/dux/agents/outreach-drafter/chat", payload: { message: "hi" } });
     expect(res.statusCode).toBe(200);
     expect(res.json().provider.model).toBe("global-fallback");
     expect(res.json().agent.id).toBe("outreach-drafter");
@@ -1563,7 +1740,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/cursus/dux/agents/interview-coach",
+      method: "PATCH", url: "/toba/dux/agents/interview-coach",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", local_only: true },
     });
     expect(res.statusCode).toBe(400);
@@ -1576,14 +1753,14 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     // Block cloud for resume-reviewer with no fallback
-    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { cloud_allowed: false } });
-    const blocked = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "blocked" } });
+    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { cloud_allowed: false } });
+    const blocked = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "blocked" } });
     expect(blocked.statusCode).toBe(403);
     expect(blocked.json().code).toBe("agent_cloud_blocked");
 
     // Now give it a local fallback
-    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/resume-reviewer", payload: { fallback_provider: "echo", fallback_model: "local-stand-in" } });
-    const ok = await app.inject({ method: "POST", url: "/cursus/dux/agents/resume-reviewer/chat", payload: { message: "via fallback" } });
+    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { fallback_provider: "echo", fallback_model: "local-stand-in" } });
+    const ok = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "via fallback" } });
     expect(ok.statusCode).toBe(200);
     expect(ok.json().provider.provider).toBe("echo");
     expect(ok.json().provider.fallback_used).toBe(true);
@@ -1595,8 +1772,8 @@ describe("Cursus standalone", () => {
     applyConfigPatch({ provider: "echo", model: "receipts-model" });
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/cursus/dux/agents/strategist/chat", payload: { message: "trace me" } });
-    const res = await app.inject({ method: "GET", url: "/cursus/receipts?action=dux_agent_chat&limit=10" });
+    await app.inject({ method: "POST", url: "/toba/dux/agents/strategist/chat", payload: { message: "trace me" } });
+    const res = await app.inject({ method: "GET", url: "/toba/receipts?action=dux_agent_chat&limit=10" });
     const recs = res.json().receipts as Array<Record<string, unknown>>;
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0]!.dux_agent_id).toBe("strategist");
@@ -1611,7 +1788,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/cursus/dux/agents/outreach-drafter/chat",
+      method: "POST", url: "/toba/dux/agents/outreach-drafter/chat",
       payload: { message: "Draft an email mentioning person@example.test and 555-123-4567" },
     });
     expect(res.statusCode).toBe(200);
@@ -1639,7 +1816,7 @@ describe("Cursus standalone", () => {
     expect(JSON.stringify(preview)).not.toContain("test-openrouter-preview-key");
   });
 
-  it("OpenRouter respects HTTP-Referer when CURSUS_OPENROUTER_REFERER is set", async () => {
+  it("OpenRouter respects HTTP-Referer when CURSUS_OPENROUTER_REFERER is set (backward compat)", async () => {
     process.env["CURSUS_OPENROUTER_REFERER"] = "https://cursus.local";
     const { buildRequestPreview } = await import("./provider.js");
     const preview = buildRequestPreview(
@@ -1650,7 +1827,7 @@ describe("Cursus standalone", () => {
     delete process.env["CURSUS_OPENROUTER_REFERER"];
   });
 
-  it("CURSUS_OPENROUTER_API_KEY env wins over generic CURSUS_PROVIDER_API_KEY for openrouter", async () => {
+  it("CURSUS_OPENROUTER_API_KEY env wins over generic CURSUS_PROVIDER_API_KEY (backward compat)", async () => {
     process.env["CURSUS_PROVIDER"] = "openrouter";
     process.env["CURSUS_MODEL"] = "deepseek/deepseek-v4-pro";
     process.env["CURSUS_PROVIDER_API_KEY"] = "generic-key";
@@ -1687,7 +1864,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/cursus/provider",
+      method: "PATCH", url: "/toba/provider",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-short" },
     });
     expect(res.statusCode).toBe(400);
@@ -1699,7 +1876,7 @@ describe("Cursus standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      method: "PATCH", url: "/toba/dux/agents/strategist",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-key" },
     });
     expect(res.statusCode).toBe(200);
@@ -1708,7 +1885,7 @@ describe("Cursus standalone", () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // PHASE 8: Tailscale-safe network auth
+  // PHASE 8: Network classification
   // ══════════════════════════════════════════════════════════════════════════
 
   it("network classifier identifies loopback / Tailscale / public", async () => {
@@ -1724,43 +1901,14 @@ describe("Cursus standalone", () => {
     expect(isLoopbackHost("127.0.0.42")).toBe(true);
   });
 
-  it("loadNetworkConfig refuses non-loopback bind without a token", async () => {
+  it("loadNetworkConfig accepts any bind host without auth", async () => {
     const { loadNetworkConfig } = await import("./network.js");
-    expect(() => loadNetworkConfig({ CURSUS_HOST: "100.64.0.1" })).toThrow(/CURSUS_AUTH_TOKEN/);
-    expect(() => loadNetworkConfig({ CURSUS_HOST: "0.0.0.0"   })).toThrow(/CURSUS_AUTH_TOKEN/);
-  });
-
-  it("loadNetworkConfig accepts non-loopback bind WITH a token; auth_required becomes true", async () => {
-    const { loadNetworkConfig } = await import("./network.js");
-    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.1", CURSUS_AUTH_TOKEN: "secret-very-long-token-XXXX" });
-    expect(cfg.exposure).toBe("tailscale_reachable");
-    expect(cfg.auth_required).toBe(true);
-    expect(cfg.auth_token_configured).toBe(true);
-  });
-
-  it("CURSUS_REQUIRE_AUTH=true forces auth even on loopback", async () => {
-    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
-    const cfg = loadNetworkConfig({ CURSUS_HOST: "127.0.0.1", CURSUS_AUTH_TOKEN: "tok", CURSUS_REQUIRE_AUTH: "true" });
-    expect(cfg.auth_required).toBe(true);
-    // loopback request without token → rejected
-    const reject = shouldAllowRequest({ path: "/cursus/dashboard", remoteAddress: "127.0.0.1", authHeader: undefined, cfg, token: "tok" });
-    expect(reject.ok).toBe(false);
-    // loopback request with valid bearer → allowed
-    const accept = shouldAllowRequest({ path: "/cursus/dashboard", remoteAddress: "127.0.0.1", authHeader: "Bearer tok", cfg, token: "tok" });
-    expect(accept.ok).toBe(true);
-    // /health remains public
-    const health = shouldAllowRequest({ path: "/health", remoteAddress: "8.8.8.8", authHeader: undefined, cfg, token: "tok" });
-    expect(health.ok).toBe(true);
-  });
-
-  it("remote (Tailscale) request without token is rejected; with token is allowed", async () => {
-    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
-    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.1", CURSUS_AUTH_TOKEN: "tok-XYZ" });
-    const noAuth = shouldAllowRequest({ path: "/cursus/profile", remoteAddress: "100.64.0.7", authHeader: undefined, cfg, token: "tok-XYZ" });
-    expect(noAuth.ok).toBe(false);
-    if (!noAuth.ok) expect(noAuth.status).toBe(401);
-    const withAuth = shouldAllowRequest({ path: "/cursus/profile", remoteAddress: "100.64.0.7", authHeader: "Bearer tok-XYZ", cfg, token: "tok-XYZ" });
-    expect(withAuth.ok).toBe(true);
+    const lo = loadNetworkConfig({ CURSUS_HOST: "127.0.0.1" });
+    expect(lo.exposure).toBe("loopback_only");
+    const ts = loadNetworkConfig({ CURSUS_HOST: "100.64.0.1" });
+    expect(ts.exposure).toBe("tailscale_reachable");
+    const wild = loadNetworkConfig({ CURSUS_HOST: "0.0.0.0" });
+    expect(wild.exposure).toBe("tailscale_reachable");
   });
 
   it("/status surfaces network exposure + Dux agent count + OpenRouter posture", async () => {
@@ -1772,7 +1920,6 @@ describe("Cursus standalone", () => {
     const body = res.json();
     expect(body.network_exposure).toBeDefined();
     expect(body.host).toBeDefined();
-    expect(typeof body.auth_required).toBe("boolean");
     expect(body.dux_agents.total).toBeGreaterThan(0);
     expect(Array.isArray(body.dux_agents.agents)).toBe(true);
     expect(body.openrouter_configured).toBe(true);
@@ -1798,9 +1945,7 @@ describe("Cursus standalone", () => {
     for (const hash of ["#dashboard", "#dux", "#profile", "#agents", "#campaigns", "#jobscout", "#apps", "#queue", "#receipts", "#settings"]) {
       expect(body).toContain(hash);
     }
-    // Auth modal + brand
-    expect(body).toContain("Auth required");
-    expect(body).toContain("Career Command Center");
+    expect(body).toContain("Career Transformation Platform");
   });
 
   it("GET /assets/app.js returns JavaScript with key API calls", async () => {
@@ -1811,16 +1956,29 @@ describe("Cursus standalone", () => {
     expect(res.headers["content-type"]).toContain("text/javascript");
     const body = res.body;
     // App talks to the real endpoints
-    expect(body).toContain("/cursus/dux/agents");
-    expect(body).toContain("/cursus/provider");
-    expect(body).toContain("/cursus/receipts");
-    expect(body).toContain("/cursus/job-scout/context");
-    expect(body).toContain("/cursus/automation");
-    // Auth handling
-    expect(body).toContain("cursus_auth_token");
-    expect(body).toContain("Bearer ");
+    expect(body).toContain("/toba/dux/agents");
+    expect(body).toContain("/toba/provider");
+    expect(body).toContain("/toba/receipts");
+    expect(body).toContain("/toba/job-scout/context");
+    expect(body).toContain("/toba/automation");
     // Dux chat must pass agent_id when an agent is selected
-    expect(body).toContain("/cursus/dux/agents/${agentId}/chat");
+    expect(body).toContain("/toba/dux/agents/${agentId}/chat");
+    // V7 campaign editor surface
+    expect(body).toContain("renderEffectivePanel");
+    expect(body).toContain("sourceBadge");
+    expect(body).toContain("work_preference");
+    expect(body).toContain("preferred_locations");
+    expect(body).toContain("unsaved changes");
+    expect(body).toContain("Using fallback default"); // no-silent-inheritance banner
+    // Resume upload + Dux context controls
+    expect(body).toContain("resume_file");
+    expect(body).toContain("fileToBase64");
+    expect(body).toContain("Include resume");
+    expect(body).toContain("include_context");
+    expect(body).toContain("profile_included");
+    expect(body).toContain("applications_included");
+    expect(body).toContain("markdownToHtml");
+    expect(body).toContain("class: \"markdown\"");
   });
 
   it("GET /assets/styles.css returns CSS", async () => {
@@ -1832,6 +1990,8 @@ describe("Cursus standalone", () => {
     expect(res.body).toContain(".chip");
     expect(res.body).toContain(".sidenav");
     expect(res.body).toContain(".chat-shell");
+    expect(res.body).toContain(".markdown h3");
+    expect(res.body).toContain(".markdown li");
   });
 
   it("GET /api returns the programmatic endpoint listing HTML", async () => {
@@ -1841,15 +2001,15 @@ describe("Cursus standalone", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("API map");
-    expect(res.body).toContain("/cursus/dux/agents");
+    expect(res.body).toContain("/toba/dux/agents");
   });
 
-  it("GET / and /assets/* are public (allowed by network guard)", async () => {
-    const { loadNetworkConfig, shouldAllowRequest } = await import("./network.js");
-    const cfg = loadNetworkConfig({ CURSUS_HOST: "100.64.0.5", CURSUS_AUTH_TOKEN: "tok" });
-    for (const path of ["/", "/api", "/assets/app.js", "/assets/styles.css", "/assets/anything-else.png"]) {
-      const decision = shouldAllowRequest({ path, remoteAddress: "100.64.0.99", authHeader: undefined, cfg, token: "tok" });
-      expect({ path, ok: decision.ok }).toEqual({ path, ok: true });
+  it("GET / and /assets/* are served without auth", async () => {
+    const { app } = create();
+    await app.ready();
+    for (const url of ["/", "/api", "/assets/app.js", "/assets/styles.css"]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.statusCode).toBe(200);
     }
   });
 
@@ -1858,14 +2018,14 @@ describe("Cursus standalone", () => {
     await app.ready();
     // Configure a per-agent API key via PATCH (typical case)
     await app.inject({
-      method: "PATCH", url: "/cursus/dux/agents/strategist",
+      method: "PATCH", url: "/toba/dux/agents/strategist",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-leak-secret" },
     });
     // The SPA shell HTML must not embed any key (it doesn't fetch keys; the API doesn't return them).
     const shell = await app.inject({ method: "GET", url: "/" });
     expect(shell.body).not.toContain("test-openrouter-leak-secret");
     // The agents endpoint sanitizes — double-check
-    const agents = await app.inject({ method: "GET", url: "/cursus/dux/agents" });
+    const agents = await app.inject({ method: "GET", url: "/toba/dux/agents" });
     expect(agents.body).not.toContain("test-openrouter-leak-secret");
     expect(agents.body).toContain("api_key_set");
   });
@@ -1873,10 +2033,229 @@ describe("Cursus standalone", () => {
   it("Receipt for dux_agent_update is written on PATCH", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "PATCH", url: "/cursus/dux/agents/job-scout-analyst", payload: { provider: "echo", model: "scout-debug" } });
-    const recs = await app.inject({ method: "GET", url: "/cursus/receipts?action=dux_agent_update" });
+    await app.inject({ method: "PATCH", url: "/toba/dux/agents/job-scout-analyst", payload: { provider: "echo", model: "scout-debug" } });
+    const recs = await app.inject({ method: "GET", url: "/toba/receipts?action=dux_agent_update" });
     const r = recs.json().receipts;
     expect(r.length).toBeGreaterThan(0);
     expect(r[0].dux_agent_id).toBe("job-scout-analyst");
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // V7: Editable campaigns + source tracing + no silent "remote" inheritance
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("fresh DB: Job Scout work_preference defaults to 'any' (NOT remote)", async () => {
+    const { app } = create();
+    await app.ready();
+    const ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    const body = ctx.json();
+    expect(body.effective.work_preference.value).toBe("any");
+    expect(body.effective.work_preference.source).toBe("default");
+    expect(body.context.remote_preference).toBe("any"); // back-compat field
+    expect(body.effective.locations.value).toEqual([]);
+    expect(body.effective.locations.source).toBe("default");
+    expect(body.effective.target_roles.source).toBe("default");
+  });
+
+  it("campaign created with no work_preference is null in the row but resolves to 'any' source 'default'", async () => {
+    const { app, v2 } = create();
+    await app.ready();
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Blank", target_role: "SRE" } });
+    const cid = created.json().campaign.id;
+    expect(v2.getCampaign(cid)?.work_preference).toBeNull(); // not silently coerced
+    const ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    const body = ctx.json();
+    expect(body.effective.work_preference.value).toBe("any");
+    expect(body.effective.work_preference.source).toBe("default");
+  });
+
+  it("source ladder: campaign > onboarding > default for work_preference", async () => {
+    const { app, v2 } = create();
+    await app.ready();
+
+    // 1. default
+    let ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    expect(ctx.json().effective.work_preference.source).toBe("default");
+
+    // 2. onboarding sets it -> source = onboarding
+    v2.updateOnboarding({ work_preference: "hybrid" });
+    ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    expect(ctx.json().effective.work_preference.value).toBe("hybrid");
+    expect(ctx.json().effective.work_preference.source).toBe("onboarding");
+
+    // 3. active campaign overrides
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "C", target_role: "X" } });
+    const cid = created.json().campaign.id;
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { work_preference: "onsite" } });
+    ctx = await app.inject({ method: "GET", url: "/toba/job-scout/context" });
+    expect(ctx.json().effective.work_preference.value).toBe("onsite");
+    expect(ctx.json().effective.work_preference.source).toBe("campaign");
+  });
+
+  it("source ladder: campaign > profile > onboarding > default for locations", async () => {
+    const { app, v1, v2 } = create();
+    await app.ready();
+
+    // 1. default
+    let body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.locations.source).toBe("default");
+    expect(body.effective.locations.value).toEqual([]);
+
+    // 2. onboarding sets locations
+    v2.updateOnboarding({ preferred_locations: "Oklahoma City, Remote-US" });
+    body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.locations.source).toBe("onboarding");
+    expect(body.effective.locations.value).toEqual(["Oklahoma City", "Remote-US"]);
+
+    // 3. profile overrides
+    v1.updateProfile({ location: "Austin, TX" });
+    body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.locations.source).toBe("profile");
+    expect(body.effective.locations.value).toEqual(["Austin, TX"]);
+
+    // 4. campaign overrides
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "L", target_role: "X" } });
+    const cid = created.json().campaign.id;
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { preferred_locations: ["Portland", "Seattle"] } });
+    body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.locations.source).toBe("campaign");
+    expect(body.effective.locations.value).toEqual(["Portland", "Seattle"]);
+  });
+
+  it("PATCH /toba/campaigns/:id persists all editable strategy fields", async () => {
+    const { app } = create();
+    await app.ready();
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Edit me", target_role: "Initial" } });
+    const cid = created.json().campaign.id;
+
+    const patched = await app.inject({
+      method: "PATCH", url: `/toba/campaigns/${cid}`,
+      payload: {
+        name: "Renamed",
+        target_role: "MSP Technician, Desktop Support",
+        work_preference: "hybrid",
+        preferred_locations: ["Tulsa", "Oklahoma City"],
+        salary_min: 65000,
+        salary_max: 95000,
+        certifications: "CompTIA A+, Net+",
+        years_experience_target: 5,
+        notes: "Prioritize local-first orgs",
+        phase: "applying",
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+    const c = patched.json().campaign;
+    expect(c.name).toBe("Renamed");
+    expect(c.target_role).toBe("MSP Technician, Desktop Support");
+    expect(c.work_preference).toBe("hybrid");
+    expect(JSON.parse(c.preferred_locations)).toEqual(["Tulsa", "Oklahoma City"]);
+    expect(c.salary_min).toBe(65000);
+    expect(c.salary_max).toBe(95000);
+    expect(c.certifications).toBe("CompTIA A+, Net+");
+    expect(c.years_experience_target).toBe(5);
+    expect(c.notes).toBe("Prioritize local-first orgs");
+    expect(c.phase).toBe("applying");
+    expect(c.updated_at).toBeTruthy();
+
+    // effective_context comes back in the same response
+    const eff = patched.json().effective_context;
+    expect(eff.work_preference.source).toBe("campaign");
+    expect(eff.work_preference.value).toBe("hybrid");
+    expect(eff.locations.source).toBe("campaign");
+    expect(eff.target_roles.value).toEqual(["MSP Technician", "Desktop Support"]);
+  });
+
+  it("PATCH partial: changing one field does not overwrite unrelated fields", async () => {
+    const { app } = create();
+    await app.ready();
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Stable", target_role: "Role A" } });
+    const cid = created.json().campaign.id;
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`,
+      payload: { work_preference: "remote", salary_min: 50000, notes: "Keep me" } });
+    // Change only `phase`
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { phase: "interviewing" } });
+    const got = await app.inject({ method: "GET", url: `/toba/campaigns/${cid}` });
+    const c = got.json().campaign;
+    expect(c.phase).toBe("interviewing");
+    expect(c.work_preference).toBe("remote");
+    expect(c.salary_min).toBe(50000);
+    expect(c.notes).toBe("Keep me");
+    expect(c.target_role).toBe("Role A");
+  });
+
+  it("PATCH rejects invalid work_preference and phase", async () => {
+    const { app } = create();
+    await app.ready();
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "V", target_role: "X" } });
+    const cid = created.json().campaign.id;
+
+    const bad1 = await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { work_preference: "wfh" } });
+    expect(bad1.statusCode).toBe(400);
+    expect(bad1.json().code).toBe("invalid_work_preference");
+
+    const bad2 = await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { phase: "victory_lap" } });
+    expect(bad2.statusCode).toBe(400);
+    expect(bad2.json().code).toBe("invalid_phase");
+
+    const bad3 = await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { preferred_locations: "Tulsa" /* not an array */ } });
+    expect(bad3.statusCode).toBe(400);
+    expect(bad3.json().code).toBe("invalid_locations");
+  });
+
+  it("GET /toba/campaigns/:id returns the campaign + effective_context with sources", async () => {
+    const { app, v2 } = create();
+    await app.ready();
+    v2.updateOnboarding({ preferred_locations: "Norman" });
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Mixed", target_role: "Help Desk" } });
+    const cid = created.json().campaign.id;
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { work_preference: "remote" } });
+
+    const got = await app.inject({ method: "GET", url: `/toba/campaigns/${cid}` });
+    expect(got.statusCode).toBe(200);
+    const body = got.json();
+    expect(body.campaign.id).toBe(cid);
+    expect(body.effective_context.work_preference).toEqual({ value: "remote", source: "campaign" });
+    expect(body.effective_context.locations).toEqual({ value: ["Norman"], source: "onboarding" });
+    expect(body.effective_context.target_roles).toEqual({ value: ["Help Desk"], source: "campaign" });
+  });
+
+  it("Job Scout context reflects campaign edits immediately", async () => {
+    const { app } = create();
+    await app.ready();
+    const created = await app.inject({ method: "POST", url: "/toba/campaigns", payload: { name: "Live", target_role: "Role X" } });
+    const cid = created.json().campaign.id;
+
+    // Before edit
+    let body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.work_preference.value).toBe("any");
+
+    // Edit
+    await app.inject({ method: "PATCH", url: `/toba/campaigns/${cid}`, payload: { work_preference: "hybrid", preferred_locations: ["Denver"] } });
+
+    // After edit
+    body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.effective.work_preference.value).toBe("hybrid");
+    expect(body.effective.work_preference.source).toBe("campaign");
+    expect(body.effective.locations.value).toEqual(["Denver"]);
+    expect(body.effective.locations.source).toBe("campaign");
+  });
+
+  it("GET /toba/campaigns/:id returns 404 for unknown ID", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/toba/campaigns/nope" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("legacy /toba/job-scout/context still exposes back-compat fields (location, remote_preference, salary_range)", async () => {
+    const { app, v1, v2 } = create();
+    await app.ready();
+    v1.updateProfile({ location: "Boise" });
+    v2.updateOnboarding({ salary_min: 70000, salary_max: 110000 });
+    const body = (await app.inject({ method: "GET", url: "/toba/job-scout/context" })).json();
+    expect(body.context.location).toBe("Boise");
+    expect(body.context.remote_preference).toBe("any");
+    expect(body.context.salary_range).toEqual({ min: 70000, max: 110000 });
+    expect(body.effective.salary_min.source).toBe("onboarding");
   });
 });

@@ -1,6 +1,5 @@
 [Unit]
-Description=Cursus — Career Change Command Center (Standalone)
-Documentation=https://github.com/anthropics/cursus
+Description=Toba — Career Transformation Platform (Standalone)
 After=network.target
 Wants=network.target
 
@@ -17,15 +16,15 @@ TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 
-# Cursus is standalone. No Squidley required.
+# Toba is standalone. TOBA_* env vars preferred, CURSUS_* accepted as fallback.
 Environment=NODE_ENV=production
-Environment=CURSUS_PORT=18815
-Environment=CURSUS_HOST=127.0.0.1
-Environment=CURSUS_DB_PATH=/mnt/ai/cursus/state/cursus.db
+Environment=TOBA_PORT=18815
+Environment=TOBA_HOST=127.0.0.1
+Environment=TOBA_DB_PATH=/mnt/ai/cursus/state/cursus.db
 # Provider defaults: unconfigured. Set in .env to enable Dux chat.
-Environment=CURSUS_PROVIDER=none
-Environment=CURSUS_MODEL=none
-Environment=CURSUS_LOCAL_ONLY=false
+Environment=TOBA_PROVIDER=none
+Environment=TOBA_MODEL=none
+Environment=TOBA_LOCAL_ONLY=false
 EnvironmentFile=-/mnt/ai/cursus/.env
 
 # Hardening

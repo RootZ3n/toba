@@ -1,7 +1,7 @@
 {
-  "name": "cursus",
+  "name": "toba",
   "version": "5.0.0",
-  "description": "Cursus — Career Change Command Center (standalone). Self-contained Fastify + SQLite service with native provider/model selection. No Squidley dependency.",
+  "description": "Toba — Career Transformation Platform (standalone). Self-contained Fastify + SQLite service with native provider/model selection.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",
-    "cursus:setup": "bash scripts/cursus-setup.sh",
-    "cursus:setup:noninteractive": "bash scripts/cursus-setup.sh --non-interactive",
+    "toba:setup": "bash scripts/toba-setup.sh",
+    "toba:setup:noninteractive": "bash scripts/toba-setup.sh --non-interactive",
     "verify": "bash scripts/verify-standalone.sh",
     "verify:tailscale": "bash scripts/verify-tailscale-ready.sh"
   },

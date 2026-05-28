@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Cursus standalone verification
+# Toba standalone verification
 # ================================
-# Proves Cursus runs without Squidley by exercising the public API surface.
+# Proves Toba runs standalone by exercising the public API surface.
 # Exits non-zero on any failure.
 #
 # Usage:
 #   ./scripts/verify-standalone.sh
-#   CURSUS_URL=http://127.0.0.1:18815 ./scripts/verify-standalone.sh
+#   TOBA_URL=http://127.0.0.1:18815 ./scripts/verify-standalone.sh
 #
 # Intentionally does not touch Squidley. If Squidley is running it is
 # irrelevant; if it is stopped that is the strongest possible signal of
@@ -14,7 +14,7 @@
 
 set -uo pipefail   # no -e: we use a custom check helper
 
-CURSUS_URL="${CURSUS_URL:-http://127.0.0.1:18815}"
+TOBA_URL="${TOBA_URL:-http://127.0.0.1:18815}"
 
 pass=0; fail=0
 # check NAME SHELL_EXPR — eval the expression; success = exit 0.
@@ -29,18 +29,18 @@ check() {
   fi
 }
 
-echo "── Cursus standalone verification ────────────────────────────────────"
-echo "Target: $CURSUS_URL"
+echo "── Toba standalone verification ────────────────────────────────────"
+echo "Target: $TOBA_URL"
 echo ""
 
 echo "[1] Service reachable"
-check "GET /health returns ok=true"          '[ "$(curl -fsS '"$CURSUS_URL"'/health | jq -r .ok)" = "true" ]'
-check "GET /version reports service=cursus"  '[ "$(curl -fsS '"$CURSUS_URL"'/version | jq -r .service)" = "cursus" ]'
-check "GET /version reports v5+ schema"      '[ "$(curl -fsS '"$CURSUS_URL"'/version | jq -r .schema_version)" -ge 5 ]'
+check "GET /health returns ok=true"          '[ "$(curl -fsS '"$TOBA_URL"'/health | jq -r .ok)" = "true" ]'
+check "GET /version reports service=toba"  '[ "$(curl -fsS '"$TOBA_URL"'/version | jq -r .service)" = "toba" ]'
+check "GET /version reports v5+ schema"      '[ "$(curl -fsS '"$TOBA_URL"'/version | jq -r .schema_version)" -ge 5 ]'
 
 echo ""
 echo "[2] Standalone mode (no Squidley required)"
-status_json="$(curl -fsS "$CURSUS_URL/status")"
+status_json="$(curl -fsS "$TOBA_URL/status")"
 export status_json
 check "mode == standalone"             '[ "$(echo "$status_json" | jq -r .mode)" = "standalone" ]'
 check "receipts_enabled == true"       '[ "$(echo "$status_json" | jq -r .receipts_enabled)" = "true" ]'
@@ -49,23 +49,23 @@ check "bridge_enabled  defaults false" '[ "$(echo "$status_json" | jq -r .bridge
 
 echo ""
 echo "[3] Native provider system"
-prov_json="$(curl -fsS "$CURSUS_URL/cursus/provider")"
+prov_json="$(curl -fsS "$TOBA_URL/toba/provider")"
 export prov_json
-check "GET /cursus/provider returns ok=true" '[ "$(echo "$prov_json" | jq -r .ok)" = "true" ]'
+check "GET /toba/provider returns ok=true" '[ "$(echo "$prov_json" | jq -r .ok)" = "true" ]'
 check "available_providers includes ollama"  'echo "$prov_json" | jq -e ".provider.available_providers | map(.id) | contains([\"ollama\"])"'
 check "available_providers includes echo"    'echo "$prov_json" | jq -e ".provider.available_providers | map(.id) | contains([\"echo\"])"'
 check "api_key never leaked in status"       '! echo "$prov_json" | jq -r ".. | strings?" | grep -qE "(sk-[A-Za-z0-9_-]{10,}|api[-_]key[\"=:]+[A-Za-z0-9])"'
 
 echo ""
 echo "[4] Runtime provider selection works"
-sel_json="$(curl -fsS -X PATCH "$CURSUS_URL/cursus/provider" -H "content-type: application/json" -d '{"provider":"echo","model":"verify-debug"}')"
+sel_json="$(curl -fsS -X PATCH "$TOBA_URL/toba/provider" -H "content-type: application/json" -d '{"provider":"echo","model":"verify-debug"}')"
 export sel_json
-check "PATCH /cursus/provider selects echo"  '[ "$(echo "$sel_json" | jq -r .provider.provider)" = "echo" ]'
+check "PATCH /toba/provider selects echo"  '[ "$(echo "$sel_json" | jq -r .provider.provider)" = "echo" ]'
 check "echo provider is local"               '[ "$(echo "$sel_json" | jq -r .provider.local)" = "true" ]'
 
 echo ""
 echo "[5] Dux chat works standalone via echo provider"
-chat_json="$(curl -fsS -X POST "$CURSUS_URL/cursus/dux/chat" -H "content-type: application/json" -d '{"message":"verify-standalone"}')"
+chat_json="$(curl -fsS -X POST "$TOBA_URL/toba/dux/chat" -H "content-type: application/json" -d '{"message":"verify-standalone"}')"
 export chat_json
 check "Dux chat returns ok=true"             '[ "$(echo "$chat_json" | jq -r .ok)" = "true" ]'
 check "Dux chat used echo provider"          '[ "$(echo "$chat_json" | jq -r .provider.provider)" = "echo" ]'
@@ -73,25 +73,25 @@ check "Dux chat reply echoes input"          'echo "$chat_json" | jq -r .reply |
 
 echo ""
 echo "[6] Velum runs BEFORE provider for sensitive data"
-sens_json="$(curl -fsS -X POST "$CURSUS_URL/cursus/dux/chat" -H "content-type: application/json" -d '{"message":"contact me at person@example.test"}')"
+sens_json="$(curl -fsS -X POST "$TOBA_URL/toba/dux/chat" -H "content-type: application/json" -d '{"message":"contact me at person@example.test"}')"
 export sens_json
 check "Velum redacted email field"           'echo "$sens_json" | jq -e ".velum.fields_redacted | contains([\"email\"])"'
 check "Provider never saw raw email"         '! echo "$sens_json" | jq -r .reply | grep -q "person@example.test"'
 
 echo ""
 echo "[7] Receipts written for provider calls"
-receipts_json="$(curl -fsS "$CURSUS_URL/cursus/receipts?action=model_call&limit=5")"
+receipts_json="$(curl -fsS "$TOBA_URL/toba/receipts?action=model_call&limit=5")"
 export receipts_json
 check "model_call receipt exists"            '[ "$(echo "$receipts_json" | jq -r ".receipts | length")" -gt 0 ]'
 check "receipt records provider=echo"        '[ "$(echo "$receipts_json" | jq -r ".receipts[0].provider")" = "echo" ]'
 
-velum_receipts_json="$(curl -fsS "$CURSUS_URL/cursus/receipts?action=velum_review&limit=5")"
+velum_receipts_json="$(curl -fsS "$TOBA_URL/toba/receipts?action=velum_review&limit=5")"
 export velum_receipts_json
 check "velum_review receipt exists"          '[ "$(echo "$velum_receipts_json" | jq -r ".receipts | length")" -gt 0 ]'
 
 echo ""
 echo "[8] Job Scout context is standalone"
-js_json="$(curl -fsS "$CURSUS_URL/cursus/job-scout/context")"
+js_json="$(curl -fsS "$TOBA_URL/toba/job-scout/context")"
 export js_json
 check "/job-scout/context returns ok=true"           '[ "$(echo "$js_json" | jq -r .ok)" = "true" ]'
 check "honest: live_search_implemented == false"     '[ "$(echo "$js_json" | jq -r .live_search_implemented)" = "false" ]'
@@ -99,15 +99,15 @@ check "ingestion_mode = manual_or_external_tool"     '[ "$(echo "$js_json" | jq 
 
 echo ""
 echo "[9] Campaign dashboard works"
-dash_json="$(curl -fsS "$CURSUS_URL/cursus/dashboard")"
+dash_json="$(curl -fsS "$TOBA_URL/toba/dashboard")"
 export dash_json
-check "GET /cursus/dashboard returns ok=true" '[ "$(echo "$dash_json" | jq -r .ok)" = "true" ]'
+check "GET /toba/dashboard returns ok=true" '[ "$(echo "$dash_json" | jq -r .ok)" = "true" ]'
 
 echo ""
 echo "[10] Velum endpoint review works"
-v_json="$(curl -fsS -X POST "$CURSUS_URL/cursus/velum/review" -H "content-type: application/json" -d '{"text":"call 555-123-4567"}')"
+v_json="$(curl -fsS -X POST "$TOBA_URL/toba/velum/review" -H "content-type: application/json" -d '{"text":"call 555-123-4567"}')"
 export v_json
-check "POST /cursus/velum/review redacted phone"     'echo "$v_json" | jq -e ".velum.fields_redacted | contains([\"phone\"])"'
+check "POST /toba/velum/review redacted phone"     'echo "$v_json" | jq -e ".velum.fields_redacted | contains([\"phone\"])"'
 
 echo ""
 echo "[11] No outbound Squidley dependency in surface output"
@@ -118,7 +118,7 @@ check "no bridge claim in standalone status"           '[ "$(echo "$status_json"
 
 echo ""
 echo "── Reset provider to unconfigured (cleanup) ──"
-curl -fsS -X PATCH "$CURSUS_URL/cursus/provider" -H "content-type: application/json" \
+curl -fsS -X PATCH "$TOBA_URL/toba/provider" -H "content-type: application/json" \
   -d '{"provider":"none","model":"none"}' >/dev/null && echo "  provider reset"
 
 echo ""
@@ -128,4 +128,4 @@ if [ "$fail" -gt 0 ]; then
   echo "STANDALONE VERIFICATION FAILED"
   exit 1
 fi
-echo "STANDALONE VERIFIED — Cursus runs without Squidley."
+echo "STANDALONE VERIFIED — Toba runs standalone."

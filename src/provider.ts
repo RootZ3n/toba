@@ -1,7 +1,7 @@
 /**
- * Cursus Native Provider Registry
- * ================================
- * Standalone provider/model selection. No dependency on Squidley.
+ * Toba Native Provider Registry
+ * ==============================
+ * Standalone provider/model selection.
  *
  * Built-in providers:
  *   - "none"      — no provider configured (returns friendly unconfigured errors)
@@ -12,19 +12,19 @@
  *   - "openrouter"— OpenAI-compatible via OpenRouter (e.g. deepseek/deepseek-v4-pro)
  *
  * Local providers (no network/API key): "none", "echo", "ollama".
- * All others are treated as cloud and blocked when CURSUS_LOCAL_ONLY=true.
+ * All others are treated as cloud and blocked when TOBA_LOCAL_ONLY=true.
  *
- * Env vars (defaults):
- *   CURSUS_PROVIDER             = "none"
- *   CURSUS_MODEL                = "none"
- *   CURSUS_PROVIDER_BASE_URL    = ""       (alias: CURSUS_PROVIDER_API_BASE)
- *   CURSUS_PROVIDER_API_KEY     = ""       (never echoed in status)
- *   CURSUS_LOCAL_ONLY           = "false"  (when true, cloud providers are rejected)
+ * Env vars (TOBA_* preferred, CURSUS_* accepted as fallback):
+ *   TOBA_PROVIDER             = "none"
+ *   TOBA_MODEL                = "none"
+ *   TOBA_PROVIDER_BASE_URL    = ""       (alias: TOBA_PROVIDER_API_BASE)
+ *   TOBA_PROVIDER_API_KEY     = ""       (never echoed in status)
+ *   TOBA_LOCAL_ONLY           = "false"  (when true, cloud providers are rejected)
  *
- * OpenRouter-specific (override generic CURSUS_PROVIDER_* when openrouter is selected):
- *   CURSUS_OPENROUTER_API_KEY   — preferred API key env for openrouter (falls back to CURSUS_PROVIDER_API_KEY)
- *   CURSUS_OPENROUTER_REFERER   — optional HTTP-Referer header (e.g. https://cursus.local)
- *   CURSUS_OPENROUTER_TITLE     — optional X-Title header (default "Cursus")
+ * OpenRouter-specific:
+ *   TOBA_OPENROUTER_API_KEY   — preferred API key env for openrouter
+ *   TOBA_OPENROUTER_REFERER   — optional HTTP-Referer header
+ *   TOBA_OPENROUTER_TITLE     — optional X-Title header (default "Toba")
  *
  * Per-call overrides:
  *   The `chat(req, overrides)` entry point accepts a partial config that wins over
@@ -68,7 +68,7 @@ export interface ProviderStatus {
   provider_label: string;
   model: string;
   local: boolean;            // is the selected provider local?
-  local_only_mode: boolean;  // is CURSUS_LOCAL_ONLY=true?
+  local_only_mode: boolean;  // is TOBA_LOCAL_ONLY=true?
   configured: boolean;       // does the provider have everything it needs to run?
   configuration_issues: string[];
   base_url: string | null;   // safe to show; "" -> null
@@ -105,22 +105,24 @@ export class ProviderError extends Error {
 
 // ── Config (in-process, runtime mutable) ────────────────────────────────────
 
+// Env helper: TOBA_* preferred, CURSUS_* fallback
+const penv = (toba: string, cursus: string) => process.env[toba] ?? process.env[cursus];
+
 function defaultConfigFromEnv(): ProviderConfig {
-  const provider = (process.env["CURSUS_PROVIDER"] ?? "none").toLowerCase();
-  const model = process.env["CURSUS_MODEL"] ?? "none";
+  const provider = (penv("TOBA_PROVIDER", "CURSUS_PROVIDER") ?? "none").toLowerCase();
+  const model = penv("TOBA_MODEL", "CURSUS_MODEL") ?? "none";
   const base_url =
-    process.env["CURSUS_PROVIDER_BASE_URL"] ??
-    process.env["CURSUS_PROVIDER_API_BASE"] ??
+    penv("TOBA_PROVIDER_BASE_URL", "CURSUS_PROVIDER_BASE_URL") ??
+    penv("TOBA_PROVIDER_API_BASE", "CURSUS_PROVIDER_API_BASE") ??
     PROVIDER_REGISTRY[provider]?.default_base_url ??
     "";
-  // Provider-specific API key env wins over generic CURSUS_PROVIDER_API_KEY.
   const apiKeyForProvider =
-    provider === "openrouter" ? process.env["CURSUS_OPENROUTER_API_KEY"] :
-    provider === "openai"     ? process.env["CURSUS_OPENAI_API_KEY"]     :
-    provider === "anthropic"  ? process.env["CURSUS_ANTHROPIC_API_KEY"]  :
+    provider === "openrouter" ? penv("TOBA_OPENROUTER_API_KEY", "CURSUS_OPENROUTER_API_KEY") :
+    provider === "openai"     ? penv("TOBA_OPENAI_API_KEY", "CURSUS_OPENAI_API_KEY")     :
+    provider === "anthropic"  ? penv("TOBA_ANTHROPIC_API_KEY", "CURSUS_ANTHROPIC_API_KEY")  :
     undefined;
-  const api_key = apiKeyForProvider ?? process.env["CURSUS_PROVIDER_API_KEY"] ?? "";
-  const local_only = (process.env["CURSUS_LOCAL_ONLY"] ?? "").toLowerCase() === "true";
+  const api_key = apiKeyForProvider ?? penv("TOBA_PROVIDER_API_KEY", "CURSUS_PROVIDER_API_KEY") ?? "";
+  const local_only = (penv("TOBA_LOCAL_ONLY", "CURSUS_LOCAL_ONLY") ?? "").toLowerCase() === "true";
   return { provider, model, base_url, api_key, local_only };
 }
 
@@ -143,24 +145,24 @@ export function getConfigurationIssues(cfg: ProviderConfig = currentConfig): str
   const issues: string[] = [];
   const def = PROVIDER_REGISTRY[cfg.provider];
   if (!def) {
-    issues.push(`Unknown provider "${cfg.provider}". Set CURSUS_PROVIDER to one of: ${Object.keys(PROVIDER_REGISTRY).join(", ")}.`);
+    issues.push(`Unknown provider "${cfg.provider}". Set TOBA_PROVIDER to one of: ${Object.keys(PROVIDER_REGISTRY).join(", ")}.`);
     return issues;
   }
   if (cfg.provider === "none") {
-    issues.push("No provider configured. Set CURSUS_PROVIDER and CURSUS_MODEL (e.g. CURSUS_PROVIDER=ollama, CURSUS_MODEL=llama3).");
+    issues.push("No provider configured. Set TOBA_PROVIDER and TOBA_MODEL (e.g. TOBA_PROVIDER=ollama, TOBA_MODEL=llama3).");
     return issues;
   }
   if (!cfg.model || cfg.model === "none") {
-    issues.push(`Model not set. Set CURSUS_MODEL for provider "${cfg.provider}".`);
+    issues.push(`Model not set. Set TOBA_MODEL for provider "${cfg.provider}".`);
   }
   if (def.requires_api_key && !cfg.api_key) {
-    issues.push(`Provider "${cfg.provider}" requires an API key. Set CURSUS_PROVIDER_API_KEY.`);
+    issues.push(`Provider "${cfg.provider}" requires an API key. Set TOBA_PROVIDER_API_KEY.`);
   }
   if (def.requires_base_url && !cfg.base_url) {
-    issues.push(`Provider "${cfg.provider}" requires a base URL. Set CURSUS_PROVIDER_BASE_URL.`);
+    issues.push(`Provider "${cfg.provider}" requires a base URL. Set TOBA_PROVIDER_BASE_URL.`);
   }
   if (cfg.local_only && !def.local) {
-    issues.push(`CURSUS_LOCAL_ONLY=true blocks cloud provider "${cfg.provider}". Choose a local provider (none, echo, ollama).`);
+    issues.push(`TOBA_LOCAL_ONLY=true blocks cloud provider "${cfg.provider}". Choose a local provider (none, echo, ollama).`);
   }
   return issues;
 }
@@ -214,7 +216,7 @@ export function applyConfigPatch(patch: ProviderPatch): ProviderStatus {
 
   if (next.local_only && !isLocalProvider(next.provider)) {
     throw new ProviderError(400, "local_only_violation",
-      `CURSUS_LOCAL_ONLY=true blocks cloud provider "${next.provider}". Choose a local provider (none, echo, ollama) or disable local-only mode.`);
+      `TOBA_LOCAL_ONLY=true blocks cloud provider "${next.provider}". Choose a local provider (none, echo, ollama) or disable local-only mode.`);
   }
   currentConfig = next;
   return getStatus();
@@ -258,8 +260,9 @@ function httpJson(method: string, urlStr: string, headers: Record<string, string
 
 async function chatEcho(req: ChatRequest, cfg: ProviderConfig): Promise<ChatResponse> {
   const lastUser = [...req.messages].reverse().find(m => m.role === "user")?.content ?? "";
+  const context = req.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
   return {
-    content: `[echo:${cfg.model || "none"}] ${lastUser}`,
+    content: `[echo:${cfg.model || "none"}]\n${context ? `${context}\n\n` : ""}${lastUser}`,
     provider: "echo",
     model: cfg.model || "echo",
     local: true,
@@ -300,8 +303,8 @@ async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerI
     "authorization": `Bearer ${cfg.api_key}`,
   };
   if (providerId === "openrouter") {
-    const referer = process.env["CURSUS_OPENROUTER_REFERER"];
-    const title = process.env["CURSUS_OPENROUTER_TITLE"] ?? "Cursus";
+    const referer = penv("TOBA_OPENROUTER_REFERER", "CURSUS_OPENROUTER_REFERER");
+    const title = penv("TOBA_OPENROUTER_TITLE", "CURSUS_OPENROUTER_TITLE") ?? "Toba";
     if (referer) headers["HTTP-Referer"] = referer;
     headers["X-Title"] = title;
   }
@@ -350,8 +353,8 @@ export function buildRequestPreview(cfg: ProviderConfig, req: ChatRequest): {
         "authorization": cfg.api_key ? `Bearer [REDACTED:${cfg.api_key.length}]` : "Bearer [unset]",
       };
       if (providerId === "openrouter") {
-        const referer = process.env["CURSUS_OPENROUTER_REFERER"];
-        const title = process.env["CURSUS_OPENROUTER_TITLE"] ?? "Cursus";
+        const referer = penv("TOBA_OPENROUTER_REFERER", "CURSUS_OPENROUTER_REFERER");
+        const title = penv("TOBA_OPENROUTER_TITLE", "CURSUS_OPENROUTER_TITLE") ?? "Toba";
         if (referer) headers["HTTP-Referer"] = referer;
         headers["X-Title"] = title;
       }
@@ -431,15 +434,15 @@ export async function chat(req: ChatRequest, overrides?: Partial<ProviderConfig>
   const issues = getConfigurationIssues(cfg);
   if (cfg.provider === "none") {
     throw new ProviderError(503, "provider_unconfigured",
-      "No provider configured. Set CURSUS_PROVIDER and CURSUS_MODEL, or POST /cursus/provider with {provider, model}. " +
-      "Local options: ollama, echo. Cloud options: openai, anthropic, openrouter (require CURSUS_PROVIDER_API_KEY).");
+      "No provider configured. Set TOBA_PROVIDER and TOBA_MODEL, or POST /toba/provider with {provider, model}. " +
+      "Local options: ollama, echo. Cloud options: openai, anthropic, openrouter (require TOBA_PROVIDER_API_KEY).");
   }
   if (issues.length > 0) {
     throw new ProviderError(503, "provider_misconfigured", issues.join(" "));
   }
   if (cfg.local_only && !isLocalProvider(cfg.provider)) {
     throw new ProviderError(403, "local_only_violation",
-      `CURSUS_LOCAL_ONLY=true blocks cloud provider "${cfg.provider}". Switch to a local provider or disable local-only mode.`);
+      `TOBA_LOCAL_ONLY=true blocks cloud provider "${cfg.provider}". Switch to a local provider or disable local-only mode.`);
   }
   switch (cfg.provider) {
     case "echo":       return chatEcho(req, cfg);

@@ -2,16 +2,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DB_PATH="${CURSUS_DB_PATH:-$ROOT/state/cursus.db}"
+DB_PATH="${TOBA_DB_PATH:-${CURSUS_DB_PATH:-$ROOT/state/cursus.db}}"
 MODE=""
 DRY_RUN=0
 KEEP_PROVIDER_CONFIG=0
 
 usage() {
   cat <<USAGE
-Usage: scripts/cursus-reset.sh (--personal-data-only|--all-data) [--keep-provider-config] [--dry-run] [--db PATH]
+Usage: scripts/toba-reset.sh (--personal-data-only|--all-data) [--keep-provider-config] [--dry-run] [--db PATH]
 
-Deletes user-owned Cursus data while preserving schema and migrations.
+Deletes user-owned Toba data while preserving schema and migrations.
 Backs up the DB before any non-dry-run reset.
 Never deletes .env or .env.bak files.
 USAGE
@@ -40,7 +40,7 @@ if [[ ! -f "$DB_PATH" ]]; then
   exit 1
 fi
 
-echo "Cursus release reset"
+echo "Toba release reset"
 echo "DB: $DB_PATH"
 echo "Mode: $MODE"
 echo "Keep provider config: $([[ "$KEEP_PROVIDER_CONFIG" == 1 ]] && echo yes || echo no)"
@@ -56,18 +56,18 @@ fi
 echo "Will preserve: schema, migrations, generic Dux agent definitions, .env files."
 
 if [[ "$DRY_RUN" == 1 ]]; then
-  node "$ROOT/scripts/reset-cursus-db.mjs" --db "$DB_PATH" --mode "$MODE" --dry-run --keep-provider-config "$KEEP_PROVIDER_CONFIG"
+  node "$ROOT/scripts/reset-toba-db.mjs" --db "$DB_PATH" --mode "$MODE" --dry-run --keep-provider-config "$KEEP_PROVIDER_CONFIG"
   exit 0
 fi
 
 backup_dir="$ROOT/backups"
 mkdir -p "$backup_dir"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup="$backup_dir/cursus-reset-$stamp.db"
+backup="$backup_dir/toba-reset-$stamp.db"
 cp "$DB_PATH" "$backup"
 [[ -f "$DB_PATH-wal" ]] && cp "$DB_PATH-wal" "$backup-wal"
 [[ -f "$DB_PATH-shm" ]] && cp "$DB_PATH-shm" "$backup-shm"
 echo "Backup written: $backup"
 
-node "$ROOT/scripts/reset-cursus-db.mjs" --db "$DB_PATH" --mode "$MODE" --keep-provider-config "$KEEP_PROVIDER_CONFIG"
-echo "Reset complete. Cursus is in first-run blank state."
+node "$ROOT/scripts/reset-toba-db.mjs" --db "$DB_PATH" --mode "$MODE" --keep-provider-config "$KEEP_PROVIDER_CONFIG"
+echo "Reset complete. Toba is in first-run blank state."

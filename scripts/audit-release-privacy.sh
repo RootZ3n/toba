@@ -52,9 +52,9 @@ if [[ -s "$ALLOWLIST" && -s "$tmp" ]]; then
 fi
 
 if [[ -s "$tmp" ]]; then
-  echo "Cursus release privacy audit FAILED. Review these tracked findings:"
+  echo "Toba release privacy audit FAILED. Review these tracked findings:"
   cat "$tmp"
   exit 1
 fi
 
-echo "Cursus release privacy audit passed: no unallowlisted personal data or secret patterns found."
+echo "Toba release privacy audit passed: no unallowlisted personal data or secret patterns found."
