@@ -1,9 +1,9 @@
-# Continue Without Claude — Cursus
+# Continue Without Claude — Toba
 
 ## What this repo does
 
-Cursus is the standalone career change command center. Runs on port 18815
-with its own SQLite DB (`state/cursus.db`), provider/model registry, Velum
+Toba is the standalone career change command center. Runs on port 18815
+with its own SQLite DB (`state/toba.db`), provider/model registry, Velum
 redactor, and receipts table. **Independent of Peh.**
 
 ## Common commands
@@ -16,9 +16,9 @@ pnpm build          # tsc -p tsconfig.json
 pnpm start          # foreground
 
 # As systemd service:
-sudo systemctl status cursus
-sudo systemctl restart cursus
-sudo journalctl -u cursus -f
+sudo systemctl status toba
+sudo systemctl restart toba
+sudo journalctl -u toba -f
 ```
 
 ## Where to start
@@ -28,7 +28,7 @@ sudo journalctl -u cursus -f
 - `src/db.ts` — SQLite schema + queries
 - `src/provider.ts` — provider/model registry
 - `README.md` — quick start
-- `DATA-CONTRACT.md` — data contract (what Cursus stores)
+- `DATA-CONTRACT.md` — data contract (what Toba stores)
 - `AUDIT-REPORT.md`, `PHASE-REPORT.md` — historical audits
 
 ## Safe edit zones
@@ -47,12 +47,12 @@ sudo journalctl -u cursus -f
 ```bash
 git log --oneline -5
 git revert HEAD
-sudo systemctl restart cursus
+sudo systemctl restart toba
 
 # DB recovery:
-ls -la state/cursus.db*    # check for journal/wal
-cp /mnt/ai/backups/cursus/<latest>.db state/cursus.db
-sudo systemctl restart cursus
+ls -la state/toba.db*    # check for journal/wal
+cp /mnt/ai/backups/toba/<latest>.db state/toba.db
+sudo systemctl restart toba
 ```
 
 ## Prompts for smaller models

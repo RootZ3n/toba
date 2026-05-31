@@ -1,40 +1,40 @@
-# Cursus — Career Change Command Center (Standalone)
+# Toba — Career Change Command Center (Standalone)
 
-**Cursus is a standalone product.** Peh is **not required**. Cursus runs
+**Toba is a standalone product.** Peh is **not required**. Toba runs
 on its own port (18815), with its own SQLite DB, its own provider/model
 registry, its own Velum redactor, and its own receipts table.
 
-If Peh is stopped, Cursus keeps working.
+If Peh is stopped, Toba keeps working.
 
 | Field | Value |
 | --- | --- |
 | Version | 5.0.0 |
 | Schema | 6 (Dux agent registry) |
 | Port | 18815 |
-| DB (canonical) | `/mnt/ai/cursus/state/cursus.db` |
-| Service | `cursus.service` (systemd) |
-| Working directory | `/mnt/ai/cursus` |
+| DB (canonical) | `/mnt/ai/toba/state/toba.db` |
+| Service | `toba.service` (systemd) |
+| Working directory | `/mnt/ai/toba` |
 | Framework | Fastify + TypeScript + better-sqlite3 (WAL) |
 
 ## Quick start
 
 ```bash
-cd /mnt/ai/cursus
-pnpm run cursus:setup
+cd /mnt/ai/toba
+pnpm run toba:setup
 # or, equivalently:
-./scripts/cursus-setup.sh
+./scripts/toba-setup.sh
 ```
 
 > ⚠️ Do **not** run `pnpm setup` — that's a pnpm built-in command (it
-> configures pnpm itself), not the Cursus wizard. Always use
-> `pnpm run cursus:setup` or call the script directly.
+> configures pnpm itself), not the Toba wizard. Always use
+> `pnpm run toba:setup` or call the script directly.
 
-That's the whole thing. `cursus:setup` is an idempotent wizard that:
+That's the whole thing. `toba:setup` is an idempotent wizard that:
 
 1. Confirms preflight (cwd, pnpm, systemd, current service path, `.env`, Tailscale).
 2. Runs `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`. Aborts on any failure (does **not** touch the service).
-3. Offers to migrate `cursus.service` to `/mnt/ai/cursus` if it's still on the legacy path. Backs up DB and unit file first.
-4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `/mnt/ai/cursus/.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
+3. Offers to migrate `toba.service` to `/mnt/ai/toba` if it's still on the legacy path. Backs up DB and unit file first.
+4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `/mnt/ai/toba/.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
 5. Lists Dux agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
 6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `CURSUS_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
 7. Runs `verify-standalone.sh` and (when applicable) `verify-tailscale-ready.sh`.
@@ -42,9 +42,9 @@ That's the whole thing. `cursus:setup` is an idempotent wizard that:
 
 Useful flags:
 ```bash
-pnpm run cursus:setup                  # interactive
-pnpm run cursus:setup:noninteractive   # accepts all defaults; skips provider/Tailscale wizards
-./scripts/cursus-setup.sh --skip-tests --skip-migrate --base-url=http://127.0.0.1:18820
+pnpm run toba:setup                  # interactive
+pnpm run toba:setup:noninteractive   # accepts all defaults; skips provider/Tailscale wizards
+./scripts/toba-setup.sh --skip-tests --skip-migrate --base-url=http://127.0.0.1:18820
 ```
 
 ### Manual operations
@@ -53,15 +53,15 @@ pnpm run cursus:setup:noninteractive   # accepts all defaults; skips provider/Ta
 pnpm install
 pnpm test && pnpm typecheck && pnpm build
 pnpm start                        # foreground
-sudo systemctl restart cursus.service
-sudo systemctl status  cursus.service
+sudo systemctl restart toba.service
+sudo systemctl status  toba.service
 pnpm verify                       # ./scripts/verify-standalone.sh
 pnpm verify:tailscale              # ./scripts/verify-tailscale-ready.sh
 ```
 
 ### Release privacy checks
 
-Public/default Cursus starts blank. A fresh DB has an empty profile,
+Public/default Toba starts blank. A fresh DB has an empty profile,
 onboarding incomplete, no active campaign, no applications, no resumes, no
 automation tasks, and no personal receipts. Built-in Dux agents are generic
 only.
@@ -71,13 +71,13 @@ Before any public release or demo, run:
 ```bash
 pnpm test && pnpm typecheck && pnpm build
 ./scripts/audit-release-privacy.sh
-./scripts/cursus-reset.sh --personal-data-only --dry-run
+./scripts/toba-reset.sh --personal-data-only --dry-run
 ```
 
 To reset a copied or release DB after reviewing the dry-run output:
 
 ```bash
-./scripts/cursus-reset.sh --personal-data-only --db /path/to/cursus.db
+./scripts/toba-reset.sh --personal-data-only --db /path/to/toba.db
 ```
 
 The reset script backs up the DB first, preserves schema/migrations and `.env`,
@@ -86,14 +86,14 @@ providers while removing user-owned profile/campaign/application/resume data.
 
 ### Front door
 
-`http://localhost:18815/` returns the standalone Cursus web UI. `/api` returns
+`http://localhost:18815/` returns the standalone Toba web UI. `/api` returns
 the programmatic endpoint map with links to `/health`, `/version`, `/status`,
-`/cursus/provider`, `/cursus/dux/agents`, `/cursus/dashboard`, and
-`/cursus/receipts`.
+`/toba/provider`, `/toba/dux/agents`, `/toba/dashboard`, and
+`/toba/receipts`.
 
 ## Configuration
 
-All configuration is via environment variables. Set them in `/mnt/ai/cursus/.env`
+All configuration is via environment variables. Set them in `/mnt/ai/toba/.env`
 (loaded by the systemd unit) or in your shell when running directly.
 
 ### Service
@@ -102,7 +102,7 @@ All configuration is via environment variables. Set them in `/mnt/ai/cursus/.env
 | --- | --- | --- |
 | `CURSUS_PORT` | `18815` | Listen port |
 | `CURSUS_HOST` | `127.0.0.1` | Listen host. Non-loopback requires `CURSUS_AUTH_TOKEN`. |
-| `CURSUS_DB_PATH` | `/mnt/ai/cursus/state/cursus.db` | SQLite path |
+| `CURSUS_DB_PATH` | `/mnt/ai/toba/state/toba.db` | SQLite path |
 | `CURSUS_VERSION` | (from package.json) | Reported version string |
 | `CURSUS_CORS_ORIGIN` | `*` | CORS origin |
 | `CURSUS_AUTH_TOKEN` | (unset) | Bearer token. Required for non-loopback hosts (Tailscale or public). |
@@ -121,7 +121,7 @@ All configuration is via environment variables. Set them in `/mnt/ai/cursus/.env
 | `CURSUS_LOCAL_ONLY` | `false` | When `true`, cloud providers are rejected at both selection and call time. |
 
 Local providers (no network, no API key):
-- `none` — Cursus boots without a provider. Dux chat returns an actionable 503.
+- `none` — Toba boots without a provider. Dux chat returns an actionable 503.
 - `echo` — In-process debug echo. Useful for verification and tests.
 - `ollama` — Local Ollama daemon. Default base URL `http://127.0.0.1:11434`.
 
@@ -138,7 +138,7 @@ OpenRouter has provider-specific env vars that override the generic ones:
 | --- | --- |
 | `CURSUS_OPENROUTER_API_KEY` | Preferred API key env (falls back to `CURSUS_PROVIDER_API_KEY`) |
 | `CURSUS_OPENROUTER_REFERER` | Optional `HTTP-Referer` header (recommended by OpenRouter for app attribution) |
-| `CURSUS_OPENROUTER_TITLE`   | Optional `X-Title` header (default `Cursus`) |
+| `CURSUS_OPENROUTER_TITLE`   | Optional `X-Title` header (default `Toba`) |
 
 `.env` example:
 
@@ -147,8 +147,8 @@ CURSUS_PROVIDER=openrouter
 CURSUS_MODEL=deepseek/deepseek-v4-pro
 CURSUS_PROVIDER_BASE_URL=https://openrouter.ai/api/v1
 CURSUS_OPENROUTER_API_KEY=OPENROUTER_API_KEY_HERE
-CURSUS_OPENROUTER_REFERER=https://cursus.local
-CURSUS_OPENROUTER_TITLE=Cursus
+CURSUS_OPENROUTER_REFERER=https://toba.local
+CURSUS_OPENROUTER_TITLE=Toba
 CURSUS_LOCAL_ONLY=false
 ```
 
@@ -156,12 +156,12 @@ If the exact OpenRouter slug for DeepSeek v4 Pro differs from
 `deepseek/deepseek-v4-pro`, set `CURSUS_MODEL` to whatever OpenRouter's
 `/api/v1/models` listing returns — the value is passed through verbatim.
 
-The API key is **never** echoed in any response. `GET /cursus/provider` and
+The API key is **never** echoed in any response. `GET /toba/provider` and
 `GET /status` only surface `api_key_set: true|false`.
 
 ### Dux agents (per-agent provider/model)
 
-Cursus seeds five built-in Dux personas on first boot:
+Toba seeds five built-in Dux personas on first boot:
 
 | Agent id            | Role |
 | --- | --- |
@@ -178,11 +178,11 @@ Endpoints:
 
 | Endpoint | Notes |
 | --- | --- |
-| `GET /cursus/dux/agents` | List the registry. `api_key` is never returned — `api_key_set` boolean is. |
-| `GET /cursus/dux/agents/:id` | One agent. |
-| `PATCH /cursus/dux/agents/:id` | Update provider/model/base_url/api_key/temperature/max_tokens/system_prompt/local_only/cloud_allowed/fallback_provider/fallback_model/enabled. Rejects unknown providers and local-only contradictions. |
-| `POST /cursus/dux/agents/:id/chat` | Chat as this specific agent. Velum runs first; receipts include `dux_agent_id`. |
-| `POST /cursus/dux/chat` | Original endpoint. Accepts optional `agent_id` in body. |
+| `GET /toba/dux/agents` | List the registry. `api_key` is never returned — `api_key_set` boolean is. |
+| `GET /toba/dux/agents/:id` | One agent. |
+| `PATCH /toba/dux/agents/:id` | Update provider/model/base_url/api_key/temperature/max_tokens/system_prompt/local_only/cloud_allowed/fallback_provider/fallback_model/enabled. Rejects unknown providers and local-only contradictions. |
+| `POST /toba/dux/agents/:id/chat` | Chat as this specific agent. Velum runs first; receipts include `dux_agent_id`. |
+| `POST /toba/dux/chat` | Original endpoint. Accepts optional `agent_id` in body. |
 
 Example: route the strategist to OpenRouter DeepSeek v4 Pro, keep
 resume-reviewer on a local model, force outreach-drafter local-only:
@@ -190,15 +190,15 @@ resume-reviewer on a local model, force outreach-drafter local-only:
 ```bash
 TOK="..."  # CURSUS_AUTH_TOKEN if running over Tailscale; omit Authorization on loopback
 
-curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/strategist \
+curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/strategist \
   -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
   -d '{"provider":"openrouter","model":"deepseek/deepseek-v4-pro","api_key":"OPENROUTER_API_KEY_HERE","base_url":"https://openrouter.ai/api/v1","temperature":0.4}'
 
-curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/resume-reviewer \
+curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/resume-reviewer \
   -H 'content-type: application/json' \
   -d '{"provider":"ollama","model":"llama3","local_only":true}'
 
-curl -X PATCH http://127.0.0.1:18815/cursus/dux/agents/outreach-drafter \
+curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/outreach-drafter \
   -H 'content-type: application/json' \
   -d '{"cloud_allowed":false,"fallback_provider":"ollama","fallback_model":"llama3"}'
 ```
@@ -214,7 +214,7 @@ Per-agent guarantees:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSUS_BRIDGE_URL` | (unset, **disabled**) | Legacy Peh bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Cursus core behavior never depends on it. |
+| `CURSUS_BRIDGE_URL` | (unset, **disabled**) | Legacy Peh bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Toba core behavior never depends on it. |
 | `PEH_CURSUS_URL` | — | Backwards-compatible alias of `CURSUS_BRIDGE_URL`. |
 
 ## API surface (selected)
@@ -224,28 +224,28 @@ Per-agent guarantees:
 | `GET /health` | Deep health: DB reachable + schema match |
 | `GET /version` | Service + schema versions |
 | `GET /status` | `mode=standalone`, provider state, receipts/velum/automation, last job-scout run |
-| `GET /cursus/provider` | Full provider status including available providers, `local_only_mode`, `api_key_set` (boolean only — no secret). |
-| `PATCH /cursus/provider` | Runtime provider/model selection. Body: `{provider, model, base_url?, api_key?, local_only?}`. |
-| `POST /cursus/provider` | Alias of PATCH. |
-| `POST /cursus/dux/chat` | Standalone Dux chat through the native provider. Velum-on-by-default (`velum:false` to override). Writes `velum_review` + `model_call` receipts. |
-| `GET /cursus/job-scout/context` | Local context for an external job-search tool. `live_search_implemented: false` — Cursus does not crawl boards itself. |
-| `POST /cursus/job-scout/ingest` | Ingest jobs into the active campaign (deduped by fingerprint). Receipt includes native provider/model metadata. |
-| `POST /cursus/velum/review` | Local PII redaction (SSN, email, phone, address, credit card). |
-| `GET /cursus/receipts?action=...` | Local audit log. |
+| `GET /toba/provider` | Full provider status including available providers, `local_only_mode`, `api_key_set` (boolean only — no secret). |
+| `PATCH /toba/provider` | Runtime provider/model selection. Body: `{provider, model, base_url?, api_key?, local_only?}`. |
+| `POST /toba/provider` | Alias of PATCH. |
+| `POST /toba/dux/chat` | Standalone Dux chat through the native provider. Velum-on-by-default (`velum:false` to override). Writes `velum_review` + `model_call` receipts. |
+| `GET /toba/job-scout/context` | Local context for an external job-search tool. `live_search_implemented: false` — Toba does not crawl boards itself. |
+| `POST /toba/job-scout/ingest` | Ingest jobs into the active campaign (deduped by fingerprint). Receipt includes native provider/model metadata. |
+| `POST /toba/velum/review` | Local PII redaction (SSN, email, phone, address, credit card). |
+| `GET /toba/receipts?action=...` | Local audit log. |
 
 ## Standalone verification
 
 ```bash
 # Confirm the service runs without Peh
 sudo systemctl stop peh.service   # or any *.service that's running
-sudo systemctl restart cursus.service
+sudo systemctl restart toba.service
 
 # Run the verification suite
-/mnt/ai/cursus/scripts/verify-standalone.sh
+/mnt/ai/toba/scripts/verify-standalone.sh
 ```
 
-The script exercises `/health`, `/status`, `/cursus/provider`,
-`/cursus/dux/chat`, `/cursus/job-scout/context`, `/cursus/velum/review`,
+The script exercises `/health`, `/status`, `/toba/provider`,
+`/toba/dux/chat`, `/toba/job-scout/context`, `/toba/velum/review`,
 and receipts — and asserts that Velum redacts sensitive data BEFORE the
 provider sees it. It exits non-zero on any failure.
 
@@ -256,27 +256,27 @@ provider sees it. It exits non-zero on any failure.
 ollama serve &
 ollama pull llama3
 
-# 2) Configure Cursus
-cat > /mnt/ai/cursus/.env <<'EOF'
+# 2) Configure Toba
+cat > /mnt/ai/toba/.env <<'EOF'
 CURSUS_PROVIDER=ollama
 CURSUS_MODEL=llama3
 CURSUS_LOCAL_ONLY=true
 EOF
-sudo systemctl restart cursus.service
+sudo systemctl restart toba.service
 
 # 3) Confirm
 curl -s localhost:18815/status         | jq '{mode, provider, model, local_only_mode}'
-curl -s localhost:18815/cursus/provider| jq '.provider | {provider, model, local, local_only_mode, configured}'
+curl -s localhost:18815/toba/provider| jq '.provider | {provider, model, local, local_only_mode, configured}'
 
 # 4) Chat (Velum-redacted before reaching the model)
-curl -s -X POST localhost:18815/cursus/dux/chat \
+curl -s -X POST localhost:18815/toba/dux/chat \
   -H 'content-type: application/json' \
   -d '{"message":"What should I focus on this week?"}' | jq .
 ```
 
 ## Tailscale access (phone / iPad / other devices on your tailnet)
 
-Cursus refuses to start on a non-loopback interface without a token. Set both:
+Toba refuses to start on a non-loopback interface without a token. Set both:
 
 ```
 CURSUS_HOST=0.0.0.0
@@ -317,29 +317,29 @@ Verify your setup:
 
 ```bash
 CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
-  /mnt/ai/cursus/scripts/verify-tailscale-ready.sh
+  /mnt/ai/toba/scripts/verify-tailscale-ready.sh
 ```
 
 ### Security guarantees
 
 1. The bind-time guard refuses to start a non-loopback service without a token.
-2. `/cursus/provider`, `/cursus/dux/agents`, `/cursus/receipts`, `/cursus/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
+2. `/toba/provider`, `/toba/dux/agents`, `/toba/receipts`, `/toba/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
 3. API keys never appear in any GET — `api_key_set: true|false` only.
 4. Bearer comparison uses an exact match against `Bearer <token>` (no prefix tricks).
 5. CORS `*` is permitted by default for private-lab use; narrow `CURSUS_CORS_ORIGIN` if exposing beyond the tailnet.
 
 ## Migration: legacy path → canonical
 
-The service previously lived at `/mnt/ai/peh-v2/apps/cursus`. To move it
-to the standalone canonical path `/mnt/ai/cursus`:
+The service previously lived at `/mnt/ai/peh-v2/apps/toba`. To move it
+to the standalone canonical path `/mnt/ai/toba`:
 
 ```bash
-sudo /mnt/ai/cursus/scripts/migrate-to-canonical.sh
+sudo /mnt/ai/toba/scripts/migrate-to-canonical.sh
 ```
 
-That script stops `cursus.service`, copies the SQLite DB (+WAL/SHM) into
-`/mnt/ai/cursus/state`, installs `cursus.service` from
-`/mnt/ai/cursus/cursus.service` into `/etc/systemd/system/`, runs
+That script stops `toba.service`, copies the SQLite DB (+WAL/SHM) into
+`/mnt/ai/toba/state`, installs `toba.service` from
+`/mnt/ai/toba/toba.service` into `/etc/systemd/system/`, runs
 `daemon-reload`, starts the service, and smoke-tests `/health`.
 
 The legacy DB file is left in place as backup.
@@ -354,7 +354,7 @@ The legacy DB file is left in place as backup.
    sensitive career data`.)
 4. Receipts are written for every model call, every Velum review, every
    campaign/application action, every Job Scout ingest, and every automation
-   queue transition — to the local `cursus_receipts` table.
+   queue transition — to the local `toba_receipts` table.
 5. `CURSUS_BRIDGE_URL` is unset by default. When set, it only surfaces a
    `bridge_enabled: true` flag in `/status`; no core endpoint reaches out to it.
 
@@ -362,8 +362,8 @@ The legacy DB file is left in place as backup.
 
 **Dux chat returns 503 with code `provider_unconfigured`**
 Set `CURSUS_PROVIDER` and `CURSUS_MODEL` (and `CURSUS_PROVIDER_API_KEY` for
-cloud providers) in `/mnt/ai/cursus/.env` and restart the service, OR
-`PATCH /cursus/provider` at runtime.
+cloud providers) in `/mnt/ai/toba/.env` and restart the service, OR
+`PATCH /toba/provider` at runtime.
 
 **`provider_misconfigured`**
 The response's `error` field lists exactly which fields are missing. Common

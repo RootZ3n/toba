@@ -52,8 +52,8 @@ export interface Campaign {
 /**
  * Per-field source for a resolved campaign value.
  *  "campaign"   — explicitly set on the campaign row
- *  "profile"    — inherited from cursus_profile / cursus_profile_v2
- *  "onboarding" — inherited from cursus_onboarding
+ *  "profile"    — inherited from toba_profile / toba_profile_v2
+ *  "onboarding" — inherited from toba_onboarding
  *  "default"    — no source set anywhere; hard-coded safe default
  */
 export type PreferenceSource = "campaign" | "profile" | "onboarding" | "default";
@@ -376,12 +376,12 @@ export class TobaV1DB {
 
   private stampVersion(): void {
     this.db.prepare(
-      "INSERT INTO cursus_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      "INSERT INTO toba_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     ).run(String(TOBA_SCHEMA_VERSION));
   }
 
   getSchemaVersion(): number {
-    const row = this.db.prepare("SELECT value FROM cursus_meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
+    const row = this.db.prepare("SELECT value FROM toba_meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
     return row ? parseInt(row.value, 10) : 0;
   }
 
@@ -396,30 +396,30 @@ export class TobaV1DB {
 
   private createTables() {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cursus_meta (
+      CREATE TABLE IF NOT EXISTS toba_meta (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS cursus_profile (
+      CREATE TABLE IF NOT EXISTS toba_profile (
         id INTEGER PRIMARY KEY, name TEXT, title TEXT, summary TEXT, location TEXT, updated_at TEXT
       );
-      CREATE TABLE IF NOT EXISTS cursus_experience (
+      CREATE TABLE IF NOT EXISTS toba_experience (
         id INTEGER PRIMARY KEY AUTOINCREMENT, company TEXT, role TEXT, start_date TEXT, end_date TEXT,
         description TEXT, highlights TEXT, is_current INTEGER DEFAULT 0
       );
-      CREATE TABLE IF NOT EXISTS cursus_certifications (
+      CREATE TABLE IF NOT EXISTS toba_certifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, issuer TEXT, status TEXT,
         date_completed TEXT, notes TEXT
       );
-      CREATE TABLE IF NOT EXISTS cursus_projects (
+      CREATE TABLE IF NOT EXISTS toba_projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, tagline TEXT, description TEXT,
         tech_stack TEXT, status TEXT, portfolio_worthy INTEGER DEFAULT 1,
         resume_bullet TEXT, archivum_entry_id TEXT
       );
-      CREATE TABLE IF NOT EXISTS cursus_skills (
+      CREATE TABLE IF NOT EXISTS toba_skills (
         id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, skill TEXT, level TEXT
       );
-      CREATE TABLE IF NOT EXISTS cursus_products (
+      CREATE TABLE IF NOT EXISTS toba_products (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, tagline TEXT, problem_solved TEXT,
         target_market TEXT, status TEXT DEFAULT 'planned', tier TEXT DEFAULT 'free',
         origin_date TEXT, github_url TEXT, demo_url TEXT, price_range TEXT, notes TEXT
@@ -428,11 +428,11 @@ export class TobaV1DB {
   }
 
   private seedIfEmpty() {
-    const count = (this.db.prepare("SELECT COUNT(*) as n FROM cursus_profile").get() as { n: number }).n;
+    const count = (this.db.prepare("SELECT COUNT(*) as n FROM toba_profile").get() as { n: number }).n;
     if (count > 0) return;
 
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO cursus_profile (id, name, title, summary, location, updated_at) VALUES (1, ?, ?, ?, ?, ?)").run(
+    this.db.prepare("INSERT INTO toba_profile (id, name, title, summary, location, updated_at) VALUES (1, ?, ?, ?, ?, ?)").run(
       null,
       null,
       null,
@@ -442,10 +442,10 @@ export class TobaV1DB {
   }
 
   getProfile(): TobaProfile {
-    const row = this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as TobaProfile | undefined;
+    const row = this.db.prepare("SELECT * FROM toba_profile WHERE id = 1").get() as TobaProfile | undefined;
     if (row) return row;
     this.seedIfEmpty();
-    return this.db.prepare("SELECT * FROM cursus_profile WHERE id = 1").get() as TobaProfile;
+    return this.db.prepare("SELECT * FROM toba_profile WHERE id = 1").get() as TobaProfile;
   }
 
   updateProfile(patch: Partial<Omit<TobaProfile, "id">>): TobaProfile {
@@ -465,7 +465,7 @@ export class TobaV1DB {
     if (fields.length > 0) {
       fields.push("updated_at = @updated_at");
       vals.updated_at = new Date().toISOString();
-      this.db.prepare(`UPDATE cursus_profile SET ${fields.join(", ")} WHERE id = 1`).run(vals);
+      this.db.prepare(`UPDATE toba_profile SET ${fields.join(", ")} WHERE id = 1`).run(vals);
     }
     return this.getProfile();
   }
@@ -473,7 +473,7 @@ export class TobaV1DB {
   clearProfile(): TobaProfile {
     const now = new Date().toISOString();
     this.db.prepare(`
-      UPDATE cursus_profile SET
+      UPDATE toba_profile SET
         name = NULL,
         email = NULL,
         phone = NULL,
@@ -505,18 +505,18 @@ export class TobaV1DB {
   }
 
   listExperience(): TobaExperience[] {
-    const rows = this.db.prepare("SELECT * FROM cursus_experience ORDER BY is_current DESC, start_date DESC").all() as Array<TobaExperience & { highlights: string }>;
+    const rows = this.db.prepare("SELECT * FROM toba_experience ORDER BY is_current DESC, start_date DESC").all() as Array<TobaExperience & { highlights: string }>;
     return rows.map(r => ({ ...r, highlights: JSON.parse(r.highlights || "[]"), is_current: !!r.is_current }));
   }
 
   addExperience(e: Omit<TobaExperience, "id">): TobaExperience {
-    const r = this.db.prepare("INSERT INTO cursus_experience (company, role, start_date, end_date, description, highlights, is_current) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+    const r = this.db.prepare("INSERT INTO toba_experience (company, role, start_date, end_date, description, highlights, is_current) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
       e.company, e.role, e.start_date, e.end_date ?? null, e.description, JSON.stringify(e.highlights ?? []), e.is_current ? 1 : 0);
     return { ...e, id: Number(r.lastInsertRowid) };
   }
 
   listCertifications(): TobaCertification[] {
-    return this.db.prepare("SELECT * FROM cursus_certifications ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END").all() as TobaCertification[];
+    return this.db.prepare("SELECT * FROM toba_certifications ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END").all() as TobaCertification[];
   }
 
   updateCertification(id: number, patch: Partial<Omit<TobaCertification, "id">>): TobaCertification | null {
@@ -526,35 +526,35 @@ export class TobaV1DB {
     if (patch.date_completed !== undefined) { fields.push("date_completed = @date_completed");   vals.date_completed = patch.date_completed; }
     if (patch.notes !== undefined)          { fields.push("notes = @notes");                     vals.notes = patch.notes; }
     if (fields.length === 0) return null;
-    this.db.prepare(`UPDATE cursus_certifications SET ${fields.join(", ")} WHERE id = @id`).run(vals);
-    return this.db.prepare("SELECT * FROM cursus_certifications WHERE id = ?").get(id) as TobaCertification;
+    this.db.prepare(`UPDATE toba_certifications SET ${fields.join(", ")} WHERE id = @id`).run(vals);
+    return this.db.prepare("SELECT * FROM toba_certifications WHERE id = ?").get(id) as TobaCertification;
   }
 
   listProjects(): TobaProject[] {
-    const rows = this.db.prepare("SELECT * FROM cursus_projects ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'complete' THEN 1 ELSE 2 END").all() as Array<TobaProject & { tech_stack: string }>;
+    const rows = this.db.prepare("SELECT * FROM toba_projects ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'complete' THEN 1 ELSE 2 END").all() as Array<TobaProject & { tech_stack: string }>;
     return rows.map(r => ({ ...r, tech_stack: JSON.parse(r.tech_stack || "[]"), portfolio_worthy: !!r.portfolio_worthy }));
   }
 
   addProject(p: Omit<TobaProject, "id">): TobaProject {
-    const r = this.db.prepare("INSERT INTO cursus_projects (name, tagline, description, tech_stack, status, portfolio_worthy, resume_bullet, archivum_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+    const r = this.db.prepare("INSERT INTO toba_projects (name, tagline, description, tech_stack, status, portfolio_worthy, resume_bullet, archivum_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
       p.name, p.tagline, p.description, JSON.stringify(p.tech_stack ?? []), p.status, p.portfolio_worthy ? 1 : 0, p.resume_bullet, p.archivum_entry_id ?? null);
     return { ...p, id: Number(r.lastInsertRowid) };
   }
 
   listSkills(): TobaSkill[] {
-    return this.db.prepare("SELECT * FROM cursus_skills ORDER BY category, CASE level WHEN 'expert' THEN 0 WHEN 'proficient' THEN 1 ELSE 2 END").all() as TobaSkill[];
+    return this.db.prepare("SELECT * FROM toba_skills ORDER BY category, CASE level WHEN 'expert' THEN 0 WHEN 'proficient' THEN 1 ELSE 2 END").all() as TobaSkill[];
   }
 
   listProducts(): TobaProduct[] {
-    return this.db.prepare("SELECT * FROM cursus_products ORDER BY CASE status WHEN 'live' THEN 0 WHEN 'beta' THEN 1 ELSE 2 END").all() as TobaProduct[];
+    return this.db.prepare("SELECT * FROM toba_products ORDER BY CASE status WHEN 'live' THEN 0 WHEN 'beta' THEN 1 ELSE 2 END").all() as TobaProduct[];
   }
 
   getProduct(id: number): TobaProduct | null {
-    return (this.db.prepare("SELECT * FROM cursus_products WHERE id = ?").get(id) as TobaProduct) ?? null;
+    return (this.db.prepare("SELECT * FROM toba_products WHERE id = ?").get(id) as TobaProduct) ?? null;
   }
 
   addProduct(p: Omit<TobaProduct, "id">): TobaProduct {
-    const r = this.db.prepare("INSERT INTO cursus_products (name, tagline, problem_solved, target_market, status, tier, origin_date, github_url, demo_url, price_range, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    const r = this.db.prepare("INSERT INTO toba_products (name, tagline, problem_solved, target_market, status, tier, origin_date, github_url, demo_url, price_range, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
       p.name, p.tagline, p.problem_solved, p.target_market, p.status, p.tier, p.origin_date, p.github_url, p.demo_url, p.price_range, p.notes);
     return { ...p, id: Number(r.lastInsertRowid) };
   }
@@ -566,7 +566,7 @@ export class TobaV1DB {
       if (value !== undefined) { fields.push(`${key} = @${key}`); vals[key] = value; }
     }
     if (fields.length === 0) return null;
-    this.db.prepare(`UPDATE cursus_products SET ${fields.join(", ")} WHERE id = @id`).run(vals);
+    this.db.prepare(`UPDATE toba_products SET ${fields.join(", ")} WHERE id = @id`).run(vals);
     return this.getProduct(id);
   }
 
@@ -702,48 +702,48 @@ export class TobaV2DB {
   }
 
   private stampVersion(): void {
-    this.db.exec("CREATE TABLE IF NOT EXISTS cursus_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS toba_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     this.db.prepare(
-      "INSERT INTO cursus_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      "INSERT INTO toba_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     ).run(String(TOBA_SCHEMA_VERSION));
   }
 
   getSchemaVersion(): number {
     try {
-      const row = this.db.prepare("SELECT value FROM cursus_meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
+      const row = this.db.prepare("SELECT value FROM toba_meta WHERE key = 'schema_version'").get() as { value: string } | undefined;
       return row ? parseInt(row.value, 10) : 0;
     } catch { return 0; }
   }
 
   private migrate(): void {
     const profileCols = [
-      "ALTER TABLE cursus_profile ADD COLUMN email TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN phone TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN work_preference TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN preferred_locations TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN salary_min INTEGER",
-      "ALTER TABLE cursus_profile ADD COLUMN salary_max INTEGER",
-      "ALTER TABLE cursus_profile ADD COLUMN years_experience INTEGER",
-      "ALTER TABLE cursus_profile ADD COLUMN certifications TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN skills TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN links_json TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN privacy_mode TEXT DEFAULT 'local-only'",
-      "ALTER TABLE cursus_profile ADD COLUMN provider_preference TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN cover_employer TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN cover_role TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN cover_industry TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN nda_active INTEGER DEFAULT 0",
-      "ALTER TABLE cursus_profile ADD COLUMN dream_job TEXT",
-      "ALTER TABLE cursus_profile ADD COLUMN gap_analysis TEXT DEFAULT '[]'",
-      "ALTER TABLE cursus_profile ADD COLUMN target_roles TEXT DEFAULT '[]'",
-      "ALTER TABLE cursus_profile ADD COLUMN constraints_json TEXT DEFAULT '{}'",
+      "ALTER TABLE toba_profile ADD COLUMN email TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN phone TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN work_preference TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN preferred_locations TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN salary_min INTEGER",
+      "ALTER TABLE toba_profile ADD COLUMN salary_max INTEGER",
+      "ALTER TABLE toba_profile ADD COLUMN years_experience INTEGER",
+      "ALTER TABLE toba_profile ADD COLUMN certifications TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN skills TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN links_json TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN privacy_mode TEXT DEFAULT 'local-only'",
+      "ALTER TABLE toba_profile ADD COLUMN provider_preference TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN cover_employer TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN cover_role TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN cover_industry TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN nda_active INTEGER DEFAULT 0",
+      "ALTER TABLE toba_profile ADD COLUMN dream_job TEXT",
+      "ALTER TABLE toba_profile ADD COLUMN gap_analysis TEXT DEFAULT '[]'",
+      "ALTER TABLE toba_profile ADD COLUMN target_roles TEXT DEFAULT '[]'",
+      "ALTER TABLE toba_profile ADD COLUMN constraints_json TEXT DEFAULT '{}'",
     ];
     for (const sql of profileCols) {
       try { this.db.exec(sql); } catch { /* column already exists */ }
     }
 
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cursus_campaigns (
+      CREATE TABLE IF NOT EXISTS toba_campaigns (
         id           TEXT PRIMARY KEY,
         name         TEXT NOT NULL,
         target_role  TEXT NOT NULL,
@@ -753,7 +753,7 @@ export class TobaV2DB {
         created_at   TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS cursus_applications (
+      CREATE TABLE IF NOT EXISTS toba_applications (
         id           TEXT PRIMARY KEY,
         campaign_id  TEXT NOT NULL,
         company      TEXT NOT NULL,
@@ -768,7 +768,7 @@ export class TobaV2DB {
         created_at   TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS cursus_resumes (
+      CREATE TABLE IF NOT EXISTS toba_resumes (
         id               TEXT PRIMARY KEY,
         profile_version  INTEGER,
         base_resume      TEXT NOT NULL,
@@ -786,7 +786,7 @@ export class TobaV2DB {
         summary          TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS cursus_outreach (
+      CREATE TABLE IF NOT EXISTS toba_outreach (
         id              TEXT PRIMARY KEY,
         application_id  TEXT,
         type            TEXT NOT NULL CHECK (type IN ('email','cover_letter','recruiter')),
@@ -798,7 +798,7 @@ export class TobaV2DB {
         gmail_thread_id TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS cursus_dux_sessions (
+      CREATE TABLE IF NOT EXISTS toba_dux_sessions (
         id                        TEXT PRIMARY KEY,
         session_type              TEXT NOT NULL CHECK (session_type IN ('interview','checkin','role_assessment','discovery')),
         messages                  TEXT NOT NULL DEFAULT '[]',
@@ -806,13 +806,13 @@ export class TobaV2DB {
         created_at                TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_apps_campaign ON cursus_applications(campaign_id);
-      CREATE INDEX IF NOT EXISTS idx_apps_status ON cursus_applications(status);
-      CREATE INDEX IF NOT EXISTS idx_outreach_status ON cursus_outreach(status);
-      CREATE INDEX IF NOT EXISTS idx_outreach_app ON cursus_outreach(application_id);
-      CREATE INDEX IF NOT EXISTS idx_dux_sessions_type ON cursus_dux_sessions(session_type);
+      CREATE INDEX IF NOT EXISTS idx_apps_campaign ON toba_applications(campaign_id);
+      CREATE INDEX IF NOT EXISTS idx_apps_status ON toba_applications(status);
+      CREATE INDEX IF NOT EXISTS idx_outreach_status ON toba_outreach(status);
+      CREATE INDEX IF NOT EXISTS idx_outreach_app ON toba_outreach(application_id);
+      CREATE INDEX IF NOT EXISTS idx_dux_sessions_type ON toba_dux_sessions(session_type);
 
-      CREATE TABLE IF NOT EXISTS cursus_receipts (
+      CREATE TABLE IF NOT EXISTS toba_receipts (
         id              TEXT PRIMARY KEY,
         action          TEXT NOT NULL,
         timestamp       TEXT NOT NULL,
@@ -827,14 +827,14 @@ export class TobaV2DB {
         warnings        TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_receipts_action ON cursus_receipts(action);
-      CREATE INDEX IF NOT EXISTS idx_receipts_campaign ON cursus_receipts(campaign_id);
-      CREATE INDEX IF NOT EXISTS idx_receipts_timestamp ON cursus_receipts(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_receipts_action ON toba_receipts(action);
+      CREATE INDEX IF NOT EXISTS idx_receipts_campaign ON toba_receipts(campaign_id);
+      CREATE INDEX IF NOT EXISTS idx_receipts_timestamp ON toba_receipts(timestamp);
     `);
 
     // ── Schema V4: onboarding, automation, app columns, fingerprints ────────
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cursus_onboarding (
+      CREATE TABLE IF NOT EXISTS toba_onboarding (
         id                  INTEGER PRIMARY KEY DEFAULT 1,
         completed           INTEGER NOT NULL DEFAULT 0,
         completed_at        TEXT,
@@ -852,7 +852,7 @@ export class TobaV2DB {
         updated_at          TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS cursus_automation (
+      CREATE TABLE IF NOT EXISTS toba_automation (
         id             TEXT PRIMARY KEY,
         kind           TEXT NOT NULL,
         status         TEXT NOT NULL DEFAULT 'pending',
@@ -865,16 +865,16 @@ export class TobaV2DB {
         resolved_at    TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_auto_status ON cursus_automation(status);
-      CREATE INDEX IF NOT EXISTS idx_auto_kind ON cursus_automation(kind);
+      CREATE INDEX IF NOT EXISTS idx_auto_status ON toba_automation(status);
+      CREATE INDEX IF NOT EXISTS idx_auto_kind ON toba_automation(kind);
     `);
 
     // Add columns to applications for source/location/remote/fingerprint
     const appCols = [
-      "ALTER TABLE cursus_applications ADD COLUMN source TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN location TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN remote TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN fingerprint TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN source TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN location TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN remote TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN fingerprint TEXT",
     ];
     for (const sql of appCols) {
       try { this.db.exec(sql); } catch { /* already exists */ }
@@ -882,15 +882,15 @@ export class TobaV2DB {
 
     // Seed onboarding row if absent
     try {
-      const count = (this.db.prepare("SELECT COUNT(*) as n FROM cursus_onboarding").get() as { n: number }).n;
+      const count = (this.db.prepare("SELECT COUNT(*) as n FROM toba_onboarding").get() as { n: number }).n;
       if (count === 0) {
-        this.db.prepare("INSERT INTO cursus_onboarding (id, updated_at) VALUES (1, ?)").run(new Date().toISOString());
+        this.db.prepare("INSERT INTO toba_onboarding (id, updated_at) VALUES (1, ?)").run(new Date().toISOString());
       }
     } catch { /* table might not exist yet in very old schemas */ }
 
     // ── Schema V5: search lanes, job evaluations, story bank, legitimacy ──
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cursus_search_lanes (
+      CREATE TABLE IF NOT EXISTS toba_search_lanes (
         id                TEXT PRIMARY KEY,
         campaign_id       TEXT NOT NULL,
         name              TEXT NOT NULL,
@@ -904,9 +904,9 @@ export class TobaV2DB {
         active            INTEGER NOT NULL DEFAULT 1,
         created_at        TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_lanes_campaign ON cursus_search_lanes(campaign_id);
+      CREATE INDEX IF NOT EXISTS idx_lanes_campaign ON toba_search_lanes(campaign_id);
 
-      CREATE TABLE IF NOT EXISTS cursus_job_evaluations (
+      CREATE TABLE IF NOT EXISTS toba_job_evaluations (
         id                TEXT PRIMARY KEY,
         application_id    TEXT NOT NULL,
         role_summary      TEXT NOT NULL,
@@ -919,9 +919,9 @@ export class TobaV2DB {
         overall_grade     TEXT NOT NULL DEFAULT 'C' CHECK (overall_grade IN ('A','B','C','D','F')),
         created_at        TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_evals_app ON cursus_job_evaluations(application_id);
+      CREATE INDEX IF NOT EXISTS idx_evals_app ON toba_job_evaluations(application_id);
 
-      CREATE TABLE IF NOT EXISTS cursus_interview_stories (
+      CREATE TABLE IF NOT EXISTS toba_interview_stories (
         id                    TEXT PRIMARY KEY,
         title                 TEXT NOT NULL,
         format                TEXT NOT NULL DEFAULT 'star' CHECK (format IN ('star','star_reflection','narrative')),
@@ -939,15 +939,15 @@ export class TobaV2DB {
 
     // Application columns for legitimacy + follow-up cadence + lane tracking
     const appColsV5 = [
-      "ALTER TABLE cursus_applications ADD COLUMN lane_id TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN legitimacy_tier TEXT DEFAULT 'unknown'",
-      "ALTER TABLE cursus_applications ADD COLUMN date_first_seen TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN date_expired TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN apply_url_status TEXT DEFAULT 'unknown'",
-      "ALTER TABLE cursus_applications ADD COLUMN follow_up_cadence_days INTEGER",
-      "ALTER TABLE cursus_applications ADD COLUMN last_follow_up_at TEXT",
-      "ALTER TABLE cursus_applications ADD COLUMN follow_up_count INTEGER DEFAULT 0",
-      "ALTER TABLE cursus_applications ADD COLUMN stale_notified INTEGER DEFAULT 0",
+      "ALTER TABLE toba_applications ADD COLUMN lane_id TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN legitimacy_tier TEXT DEFAULT 'unknown'",
+      "ALTER TABLE toba_applications ADD COLUMN date_first_seen TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN date_expired TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN apply_url_status TEXT DEFAULT 'unknown'",
+      "ALTER TABLE toba_applications ADD COLUMN follow_up_cadence_days INTEGER",
+      "ALTER TABLE toba_applications ADD COLUMN last_follow_up_at TEXT",
+      "ALTER TABLE toba_applications ADD COLUMN follow_up_count INTEGER DEFAULT 0",
+      "ALTER TABLE toba_applications ADD COLUMN stale_notified INTEGER DEFAULT 0",
     ];
     for (const sql of appColsV5) {
       try { this.db.exec(sql); } catch { /* already exists */ }
@@ -955,7 +955,7 @@ export class TobaV2DB {
 
     // ── Schema V6: Dux agent registry + receipt.dux_agent_id ────────────────
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cursus_dux_agents (
+      CREATE TABLE IF NOT EXISTS toba_dux_agents (
         id                TEXT PRIMARY KEY,
         display_name      TEXT NOT NULL,
         role              TEXT NOT NULL,
@@ -974,9 +974,9 @@ export class TobaV2DB {
         created_at        TEXT NOT NULL,
         updated_at        TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_dux_agents_enabled ON cursus_dux_agents(enabled);
+      CREATE INDEX IF NOT EXISTS idx_dux_agents_enabled ON toba_dux_agents(enabled);
     `);
-    try { this.db.exec("ALTER TABLE cursus_receipts ADD COLUMN dux_agent_id TEXT"); } catch { /* already exists */ }
+    try { this.db.exec("ALTER TABLE toba_receipts ADD COLUMN dux_agent_id TEXT"); } catch { /* already exists */ }
 
     // Seed built-in agents on first init. UPSERT-safe — never overwrites
     // user-supplied provider/model overrides.
@@ -994,7 +994,7 @@ export class TobaV2DB {
     ];
     const now = new Date().toISOString();
     const insertAgent = this.db.prepare(`
-      INSERT OR IGNORE INTO cursus_dux_agents (id, display_name, role, enabled, system_prompt, created_at, updated_at)
+      INSERT OR IGNORE INTO toba_dux_agents (id, display_name, role, enabled, system_prompt, created_at, updated_at)
       VALUES (?, ?, ?, 1, ?, ?, ?)
     `);
     for (const a of seedAgents) insertAgent.run(a.id, a.display_name, a.role, a.system_prompt ?? null, now, now);
@@ -1004,14 +1004,14 @@ export class TobaV2DB {
     // on the campaign" from "inherited / default". Importantly, no default
     // is "remote" — fresh campaigns inherit nothing; the resolver returns "any".
     const campaignColsV7 = [
-      "ALTER TABLE cursus_campaigns ADD COLUMN work_preference TEXT",                  // remote | hybrid | onsite | any | NULL
-      "ALTER TABLE cursus_campaigns ADD COLUMN preferred_locations TEXT",              // JSON array of strings
-      "ALTER TABLE cursus_campaigns ADD COLUMN salary_min INTEGER",
-      "ALTER TABLE cursus_campaigns ADD COLUMN salary_max INTEGER",
-      "ALTER TABLE cursus_campaigns ADD COLUMN certifications TEXT",
-      "ALTER TABLE cursus_campaigns ADD COLUMN years_experience_target INTEGER",
-      "ALTER TABLE cursus_campaigns ADD COLUMN notes TEXT",
-      "ALTER TABLE cursus_campaigns ADD COLUMN updated_at TEXT",
+      "ALTER TABLE toba_campaigns ADD COLUMN work_preference TEXT",                  // remote | hybrid | onsite | any | NULL
+      "ALTER TABLE toba_campaigns ADD COLUMN preferred_locations TEXT",              // JSON array of strings
+      "ALTER TABLE toba_campaigns ADD COLUMN salary_min INTEGER",
+      "ALTER TABLE toba_campaigns ADD COLUMN salary_max INTEGER",
+      "ALTER TABLE toba_campaigns ADD COLUMN certifications TEXT",
+      "ALTER TABLE toba_campaigns ADD COLUMN years_experience_target INTEGER",
+      "ALTER TABLE toba_campaigns ADD COLUMN notes TEXT",
+      "ALTER TABLE toba_campaigns ADD COLUMN updated_at TEXT",
     ];
     for (const sql of campaignColsV7) {
       try { this.db.exec(sql); } catch { /* already exists */ }
@@ -1019,16 +1019,16 @@ export class TobaV2DB {
 
     // ── Schema V8: resume upload metadata + safe summaries ────────────────
     const resumeColsV8 = [
-      "ALTER TABLE cursus_resumes ADD COLUMN filename TEXT",
-      "ALTER TABLE cursus_resumes ADD COLUMN uploaded_at TEXT",
-      "ALTER TABLE cursus_resumes ADD COLUMN source TEXT",
-      "ALTER TABLE cursus_resumes ADD COLUMN mime TEXT",
-      "ALTER TABLE cursus_resumes ADD COLUMN bytes INTEGER",
-      "ALTER TABLE cursus_resumes ADD COLUMN extracted_length INTEGER",
-      "ALTER TABLE cursus_resumes ADD COLUMN velum_reviewed INTEGER",
-      "ALTER TABLE cursus_resumes ADD COLUMN velum_redacted INTEGER",
-      "ALTER TABLE cursus_resumes ADD COLUMN velum_fields_redacted TEXT",
-      "ALTER TABLE cursus_resumes ADD COLUMN summary TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN filename TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN uploaded_at TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN source TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN mime TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN bytes INTEGER",
+      "ALTER TABLE toba_resumes ADD COLUMN extracted_length INTEGER",
+      "ALTER TABLE toba_resumes ADD COLUMN velum_reviewed INTEGER",
+      "ALTER TABLE toba_resumes ADD COLUMN velum_redacted INTEGER",
+      "ALTER TABLE toba_resumes ADD COLUMN velum_fields_redacted TEXT",
+      "ALTER TABLE toba_resumes ADD COLUMN summary TEXT",
     ];
     for (const sql of resumeColsV8) {
       try { this.db.exec(sql); } catch { /* already exists */ }
@@ -1038,7 +1038,7 @@ export class TobaV2DB {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   getOnboarding(): OnboardingState {
-    return this.db.prepare("SELECT * FROM cursus_onboarding WHERE id = 1").get() as OnboardingState;
+    return this.db.prepare("SELECT * FROM toba_onboarding WHERE id = 1").get() as OnboardingState;
   }
 
   updateOnboarding(patch: Partial<Omit<OnboardingState, "id" | "updated_at">>): OnboardingState {
@@ -1058,14 +1058,14 @@ export class TobaV2DB {
     if (fields.length === 0) return this.getOnboarding();
     fields.push("updated_at = ?");
     values.push(new Date().toISOString());
-    this.db.prepare(`UPDATE cursus_onboarding SET ${fields.join(", ")} WHERE id = 1`).run(...values);
+    this.db.prepare(`UPDATE toba_onboarding SET ${fields.join(", ")} WHERE id = 1`).run(...values);
     return this.getOnboarding();
   }
 
   clearOnboarding(): OnboardingState {
     const now = new Date().toISOString();
     this.db.prepare(`
-      UPDATE cursus_onboarding SET
+      UPDATE toba_onboarding SET
         completed = 0,
         completed_at = NULL,
         name = NULL,
@@ -1087,14 +1087,14 @@ export class TobaV2DB {
 
   completeOnboarding(): OnboardingState {
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE cursus_onboarding SET completed = 1, completed_at = ?, updated_at = ? WHERE id = 1").run(now, now);
+    this.db.prepare("UPDATE toba_onboarding SET completed = 1, completed_at = ?, updated_at = ? WHERE id = 1").run(now, now);
     return this.getOnboarding();
   }
 
   // ── Profile (V2 extensions) ─────────────────────────────────────────────────
 
   getProfileV2(): Record<string, unknown> | null {
-    return this.db.prepare("SELECT * FROM cursus_profile LIMIT 1").get() as Record<string, unknown> | null;
+    return this.db.prepare("SELECT * FROM toba_profile LIMIT 1").get() as Record<string, unknown> | null;
   }
 
   updateProfileV2(patch: Record<string, unknown>): void {
@@ -1112,24 +1112,24 @@ export class TobaV2DB {
     }
     if (fields.length === 0) return;
     values.push(new Date().toISOString());
-    this.db.prepare(`UPDATE cursus_profile SET ${fields.join(", ")}, updated_at = ? WHERE id = 1`).run(...values);
+    this.db.prepare(`UPDATE toba_profile SET ${fields.join(", ")}, updated_at = ? WHERE id = 1`).run(...values);
   }
 
   // ── Campaigns ───────────────────────────────────────────────────────────────
 
   listCampaigns(): Campaign[] {
-    return this.db.prepare("SELECT * FROM cursus_campaigns ORDER BY created_at DESC").all() as Campaign[];
+    return this.db.prepare("SELECT * FROM toba_campaigns ORDER BY created_at DESC").all() as Campaign[];
   }
 
   getCampaign(id: string): Campaign | null {
-    return this.db.prepare("SELECT * FROM cursus_campaigns WHERE id = ?").get(id) as Campaign | null;
+    return this.db.prepare("SELECT * FROM toba_campaigns WHERE id = ?").get(id) as Campaign | null;
   }
 
   createCampaign(name: string, targetRole: string): Campaign {
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE cursus_campaigns SET active = 0 WHERE active = 1").run();
-    this.db.prepare("INSERT INTO cursus_campaigns (id, name, target_role, created_at) VALUES (?, ?, ?, ?)").run(id, name, targetRole, now);
+    this.db.prepare("UPDATE toba_campaigns SET active = 0 WHERE active = 1").run();
+    this.db.prepare("INSERT INTO toba_campaigns (id, name, target_role, created_at) VALUES (?, ?, ?, ?)").run(id, name, targetRole, now);
     return this.getCampaign(id)!;
   }
 
@@ -1159,7 +1159,7 @@ export class TobaV2DB {
     fields.push("updated_at = ?");
     values.push(new Date().toISOString());
     values.push(id);
-    this.db.prepare(`UPDATE cursus_campaigns SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_campaigns SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getCampaign(id);
   }
 
@@ -1268,28 +1268,28 @@ export class TobaV2DB {
   closeCampaign(id: string): Campaign | null {
     const campaign = this.getCampaign(id);
     if (!campaign) return null;
-    this.db.prepare("UPDATE cursus_campaigns SET active = 0, phase = 'closed' WHERE id = ?").run(id);
+    this.db.prepare("UPDATE toba_campaigns SET active = 0, phase = 'closed' WHERE id = ?").run(id);
     return this.getCampaign(id);
   }
 
   getActiveCampaign(): Campaign | null {
-    return this.db.prepare("SELECT * FROM cursus_campaigns WHERE active = 1 LIMIT 1").get() as Campaign | null;
+    return this.db.prepare("SELECT * FROM toba_campaigns WHERE active = 1 LIMIT 1").get() as Campaign | null;
   }
 
   countActiveCampaigns(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as cnt FROM cursus_campaigns WHERE active = 1").get() as { cnt: number };
+    const row = this.db.prepare("SELECT COUNT(*) as cnt FROM toba_campaigns WHERE active = 1").get() as { cnt: number };
     return row.cnt;
   }
 
   // ── Applications ────────────────────────────────────────────────────────────
 
   listApplications(campaignId?: string): Application[] {
-    if (campaignId) return this.db.prepare("SELECT * FROM cursus_applications WHERE campaign_id = ? ORDER BY created_at DESC").all(campaignId) as Application[];
-    return this.db.prepare("SELECT * FROM cursus_applications ORDER BY created_at DESC").all() as Application[];
+    if (campaignId) return this.db.prepare("SELECT * FROM toba_applications WHERE campaign_id = ? ORDER BY created_at DESC").all(campaignId) as Application[];
+    return this.db.prepare("SELECT * FROM toba_applications ORDER BY created_at DESC").all() as Application[];
   }
 
   getApplication(id: string): Application | null {
-    return this.db.prepare("SELECT * FROM cursus_applications WHERE id = ?").get(id) as Application | null;
+    return this.db.prepare("SELECT * FROM toba_applications WHERE id = ?").get(id) as Application | null;
   }
 
   static jobFingerprint(company: string, role: string, url?: string | null): string {
@@ -1298,7 +1298,7 @@ export class TobaV2DB {
   }
 
   hasFingerprint(fingerprint: string): boolean {
-    const row = this.db.prepare("SELECT 1 FROM cursus_applications WHERE fingerprint = ? LIMIT 1").get(fingerprint);
+    const row = this.db.prepare("SELECT 1 FROM toba_applications WHERE fingerprint = ? LIMIT 1").get(fingerprint);
     return !!row;
   }
 
@@ -1311,7 +1311,7 @@ export class TobaV2DB {
     const now = new Date().toISOString();
     const fp = TobaV2DB.jobFingerprint(data.company, data.role, data.url);
     this.db.prepare(
-      "INSERT INTO cursus_applications (id, campaign_id, company, role, url, salary_range, match_score, notes, source, location, remote, fingerprint, lane_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO toba_applications (id, campaign_id, company, role, url, salary_range, match_score, notes, source, location, remote, fingerprint, lane_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       id, data.campaign_id, data.company, data.role,
       data.url ?? null, data.salary_range ?? null, data.match_score ?? null, data.notes ?? null,
@@ -1332,14 +1332,14 @@ export class TobaV2DB {
     }
     if (fields.length === 0) return this.getApplication(id);
     values.push(id);
-    this.db.prepare(`UPDATE cursus_applications SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_applications SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getApplication(id);
   }
 
   countApplicationsByStatus(campaignId?: string): Record<AppStatus, number> {
     const rows = campaignId
-      ? this.db.prepare("SELECT status, COUNT(*) as cnt FROM cursus_applications WHERE campaign_id = ? GROUP BY status").all(campaignId) as Array<{ status: AppStatus; cnt: number }>
-      : this.db.prepare("SELECT status, COUNT(*) as cnt FROM cursus_applications GROUP BY status").all() as Array<{ status: AppStatus; cnt: number }>;
+      ? this.db.prepare("SELECT status, COUNT(*) as cnt FROM toba_applications WHERE campaign_id = ? GROUP BY status").all(campaignId) as Array<{ status: AppStatus; cnt: number }>
+      : this.db.prepare("SELECT status, COUNT(*) as cnt FROM toba_applications GROUP BY status").all() as Array<{ status: AppStatus; cnt: number }>;
     const counts: Record<string, number> = { found: 0, qualified: 0, applied: 0, responded: 0, interviewing: 0, closed: 0 };
     for (const r of rows) counts[r.status] = r.cnt;
     return counts as Record<AppStatus, number>;
@@ -1379,7 +1379,7 @@ export class TobaV2DB {
     let outreachReplied = 0;
     if (appIds.length > 0) {
       const placeholders = appIds.map(() => "?").join(",");
-      const oRows = this.db.prepare(`SELECT status, COUNT(*) as cnt FROM cursus_outreach WHERE application_id IN (${placeholders}) GROUP BY status`).all(...appIds) as Array<{ status: string; cnt: number }>;
+      const oRows = this.db.prepare(`SELECT status, COUNT(*) as cnt FROM toba_outreach WHERE application_id IN (${placeholders}) GROUP BY status`).all(...appIds) as Array<{ status: string; cnt: number }>;
       for (const r of oRows) {
         outreachTotal += r.cnt;
         if (r.status === "sent" || r.status === "replied") outreachSent += r.cnt;
@@ -1477,18 +1477,18 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      "INSERT INTO cursus_automation (id, kind, status, title, detail, campaign_id, application_id, schedule, created_at) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO toba_automation (id, kind, status, title, detail, campaign_id, application_id, schedule, created_at) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)"
     ).run(id, data.kind, data.title, data.detail ?? "", data.campaign_id ?? null, data.application_id ?? null, data.schedule ?? null, now);
-    return this.db.prepare("SELECT * FROM cursus_automation WHERE id = ?").get(id) as AutomationTask;
+    return this.db.prepare("SELECT * FROM toba_automation WHERE id = ?").get(id) as AutomationTask;
   }
 
   listAutomationTasks(status?: AutomationStatus): AutomationTask[] {
-    if (status) return this.db.prepare("SELECT * FROM cursus_automation WHERE status = ? ORDER BY created_at DESC").all(status) as AutomationTask[];
-    return this.db.prepare("SELECT * FROM cursus_automation ORDER BY created_at DESC").all() as AutomationTask[];
+    if (status) return this.db.prepare("SELECT * FROM toba_automation WHERE status = ? ORDER BY created_at DESC").all(status) as AutomationTask[];
+    return this.db.prepare("SELECT * FROM toba_automation ORDER BY created_at DESC").all() as AutomationTask[];
   }
 
   getAutomationTask(id: string): AutomationTask | null {
-    return this.db.prepare("SELECT * FROM cursus_automation WHERE id = ?").get(id) as AutomationTask | null;
+    return this.db.prepare("SELECT * FROM toba_automation WHERE id = ?").get(id) as AutomationTask | null;
   }
 
   resolveAutomationTask(id: string, newStatus: "approved" | "rejected" | "executed"): AutomationTask | null {
@@ -1502,19 +1502,19 @@ export class TobaV2DB {
     };
     if (!validFrom[newStatus]?.includes(task.status)) return null;
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE cursus_automation SET status = ?, resolved_at = ? WHERE id = ?").run(newStatus, now, id);
+    this.db.prepare("UPDATE toba_automation SET status = ?, resolved_at = ? WHERE id = ?").run(newStatus, now, id);
     return this.getAutomationTask(id);
   }
 
   countPendingAutomation(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as cnt FROM cursus_automation WHERE status IN ('pending', 'awaiting_approval')").get() as { cnt: number };
+    const row = this.db.prepare("SELECT COUNT(*) as cnt FROM toba_automation WHERE status IN ('pending', 'awaiting_approval')").get() as { cnt: number };
     return row.cnt;
   }
 
   // ── Resumes ─────────────────────────────────────────────────────────────────
 
   listResumes(): Resume[] {
-    return this.db.prepare("SELECT * FROM cursus_resumes ORDER BY created_at DESC").all() as Resume[];
+    return this.db.prepare("SELECT * FROM toba_resumes ORDER BY created_at DESC").all() as Resume[];
   }
 
   createResume(baseResume: string, profileVersion?: number, tailoredFor?: string, meta: Partial<Pick<Resume,
@@ -1524,7 +1524,7 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(`
-      INSERT INTO cursus_resumes (
+      INSERT INTO toba_resumes (
         id, profile_version, base_resume, tailored_for, created_at,
         filename, uploaded_at, source, mime, bytes, extracted_length,
         velum_reviewed, velum_redacted, velum_fields_redacted, summary
@@ -1542,60 +1542,60 @@ export class TobaV2DB {
       meta.velum_fields_redacted ?? null,
       meta.summary ?? null,
     );
-    return this.db.prepare("SELECT * FROM cursus_resumes WHERE id = ?").get(id) as Resume;
+    return this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume;
   }
 
   // ── Outreach ────────────────────────────────────────────────────────────────
 
   listOutreach(status?: OutreachStatus): Outreach[] {
-    if (status) return this.db.prepare("SELECT * FROM cursus_outreach WHERE status = ? ORDER BY created_at DESC").all(status) as Outreach[];
-    return this.db.prepare("SELECT * FROM cursus_outreach ORDER BY created_at DESC").all() as Outreach[];
+    if (status) return this.db.prepare("SELECT * FROM toba_outreach WHERE status = ? ORDER BY created_at DESC").all(status) as Outreach[];
+    return this.db.prepare("SELECT * FROM toba_outreach ORDER BY created_at DESC").all() as Outreach[];
   }
 
   stageOutreach(data: { application_id?: string; type: OutreachType; subject: string; body: string }): Outreach {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      "INSERT INTO cursus_outreach (id, application_id, type, subject, body, status, created_at) VALUES (?, ?, ?, ?, ?, 'staged', ?)"
+      "INSERT INTO toba_outreach (id, application_id, type, subject, body, status, created_at) VALUES (?, ?, ?, ?, ?, 'staged', ?)"
     ).run(id, data.application_id ?? null, data.type, data.subject, data.body, now);
-    return this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach;
+    return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
   }
 
   approveOutreach(id: string): Outreach | null {
-    const existing = this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach | null;
+    const existing = this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach | null;
     if (!existing || existing.status !== "staged") return null;
-    this.db.prepare("UPDATE cursus_outreach SET status = 'approved' WHERE id = ? AND status = 'staged'").run(id);
-    return this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach;
+    this.db.prepare("UPDATE toba_outreach SET status = 'approved' WHERE id = ? AND status = 'staged'").run(id);
+    return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
   }
 
   markOutreachSent(id: string, gmailThreadId?: string): Outreach | null {
-    const existing = this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach | null;
+    const existing = this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach | null;
     if (!existing || existing.status !== "approved") return null;
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE cursus_outreach SET status = 'sent', sent_at = ?, gmail_thread_id = ? WHERE id = ? AND status = 'approved'").run(now, gmailThreadId ?? null, id);
-    return this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach;
+    this.db.prepare("UPDATE toba_outreach SET status = 'sent', sent_at = ?, gmail_thread_id = ? WHERE id = ? AND status = 'approved'").run(now, gmailThreadId ?? null, id);
+    return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
   }
 
   markOutreachReplied(id: string): Outreach | null {
-    this.db.prepare("UPDATE cursus_outreach SET status = 'replied' WHERE id = ? AND status = 'sent'").run(id);
-    return this.db.prepare("SELECT * FROM cursus_outreach WHERE id = ?").get(id) as Outreach;
+    this.db.prepare("UPDATE toba_outreach SET status = 'replied' WHERE id = ? AND status = 'sent'").run(id);
+    return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
   }
 
   rejectOutreach(id: string): boolean {
-    return this.db.prepare("DELETE FROM cursus_outreach WHERE id = ? AND status = 'staged'").run(id).changes > 0;
+    return this.db.prepare("DELETE FROM toba_outreach WHERE id = ? AND status = 'staged'").run(id).changes > 0;
   }
 
   // ── Dux Agent Registry ─────────────────────────────────────────────────────
 
   listDuxAgents(includeDisabled = true): DuxAgent[] {
     const q = includeDisabled
-      ? "SELECT * FROM cursus_dux_agents ORDER BY id"
-      : "SELECT * FROM cursus_dux_agents WHERE enabled = 1 ORDER BY id";
+      ? "SELECT * FROM toba_dux_agents ORDER BY id"
+      : "SELECT * FROM toba_dux_agents WHERE enabled = 1 ORDER BY id";
     return this.db.prepare(q).all() as DuxAgent[];
   }
 
   getDuxAgent(id: string): DuxAgent | null {
-    return this.db.prepare("SELECT * FROM cursus_dux_agents WHERE id = ?").get(id) as DuxAgent | null;
+    return this.db.prepare("SELECT * FROM toba_dux_agents WHERE id = ?").get(id) as DuxAgent | null;
   }
 
   updateDuxAgent(id: string, patch: Partial<Omit<DuxAgent, "id" | "created_at" | "updated_at">>): DuxAgent | null {
@@ -1618,7 +1618,7 @@ export class TobaV2DB {
     fields.push("updated_at = ?");
     values.push(new Date().toISOString());
     values.push(id);
-    this.db.prepare(`UPDATE cursus_dux_agents SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_dux_agents SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getDuxAgent(id);
   }
 
@@ -1634,17 +1634,17 @@ export class TobaV2DB {
   // ── Dux Sessions ────────────────────────────────────────────────────────────
 
   listDuxSessions(): DuxSession[] {
-    return this.db.prepare("SELECT * FROM cursus_dux_sessions ORDER BY created_at DESC").all() as DuxSession[];
+    return this.db.prepare("SELECT * FROM toba_dux_sessions ORDER BY created_at DESC").all() as DuxSession[];
   }
 
   getDuxSession(id: string): DuxSession | null {
-    return this.db.prepare("SELECT * FROM cursus_dux_sessions WHERE id = ?").get(id) as DuxSession | null;
+    return this.db.prepare("SELECT * FROM toba_dux_sessions WHERE id = ?").get(id) as DuxSession | null;
   }
 
   createDuxSession(sessionType: DuxSessionType): DuxSession {
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO cursus_dux_sessions (id, session_type, messages, created_at) VALUES (?, ?, '[]', ?)").run(id, sessionType, now);
+    this.db.prepare("INSERT INTO toba_dux_sessions (id, session_type, messages, created_at) VALUES (?, ?, '[]', ?)").run(id, sessionType, now);
     return this.getDuxSession(id)!;
   }
 
@@ -1653,7 +1653,7 @@ export class TobaV2DB {
     if (!session) return;
     const messages = JSON.parse(session.messages) as Array<{ role: string; content: string; timestamp: string }>;
     messages.push({ role, content, timestamp: new Date().toISOString() });
-    this.db.prepare("UPDATE cursus_dux_sessions SET messages = ? WHERE id = ?").run(JSON.stringify(messages), sessionId);
+    this.db.prepare("UPDATE toba_dux_sessions SET messages = ? WHERE id = ?").run(JSON.stringify(messages), sessionId);
   }
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
@@ -1664,15 +1664,15 @@ export class TobaV2DB {
     const counts = this.countApplicationsByStatus();
     const totalApplications = Object.values(counts).reduce((a, b) => a + b, 0);
 
-    const outreachCounts = this.db.prepare("SELECT status, COUNT(*) as cnt FROM cursus_outreach GROUP BY status").all() as Array<{ status: string; cnt: number }>;
+    const outreachCounts = this.db.prepare("SELECT status, COUNT(*) as cnt FROM toba_outreach GROUP BY status").all() as Array<{ status: string; cnt: number }>;
     const oc: Record<string, number> = {};
     for (const r of outreachCounts) oc[r.status] = r.cnt;
 
     const duxSessions = this.listDuxSessions();
     const lastDux = duxSessions.length > 0 ? duxSessions[0]!.created_at : null;
 
-    const recentApps = this.db.prepare("SELECT 'application' as type, company || ' — ' || role as detail, created_at as timestamp FROM cursus_applications ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
-    const recentOutreach = this.db.prepare("SELECT 'outreach' as type, type || ': ' || subject as detail, created_at as timestamp FROM cursus_outreach ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
+    const recentApps = this.db.prepare("SELECT 'application' as type, company || ' — ' || role as detail, created_at as timestamp FROM toba_applications ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
+    const recentOutreach = this.db.prepare("SELECT 'outreach' as type, type || ': ' || subject as detail, created_at as timestamp FROM toba_outreach ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
     const recentActivity = [...recentApps, ...recentOutreach].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 10);
     const daysActive = activeCampaign
       ? Math.max(0, Math.floor((Date.now() - new Date(activeCampaign.created_at).getTime()) / 86_400_000))
@@ -1731,7 +1731,7 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO cursus_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings, dux_agent_id)
+      `INSERT INTO toba_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings, dux_agent_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.action, now,
@@ -1746,61 +1746,61 @@ export class TobaV2DB {
       data.warnings ?? null,
       data.dux_agent_id ?? null,
     );
-    return this.db.prepare("SELECT * FROM cursus_receipts WHERE id = ?").get(id) as Receipt;
+    return this.db.prepare("SELECT * FROM toba_receipts WHERE id = ?").get(id) as Receipt;
   }
 
   listReceipts(limit = 50, action?: ReceiptAction, duxAgentId?: string): Receipt[] {
     if (action && duxAgentId) {
-      return this.db.prepare("SELECT * FROM cursus_receipts WHERE action = ? AND dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(action, duxAgentId, limit) as Receipt[];
+      return this.db.prepare("SELECT * FROM toba_receipts WHERE action = ? AND dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(action, duxAgentId, limit) as Receipt[];
     }
     if (action) {
-      return this.db.prepare("SELECT * FROM cursus_receipts WHERE action = ? ORDER BY timestamp DESC LIMIT ?").all(action, limit) as Receipt[];
+      return this.db.prepare("SELECT * FROM toba_receipts WHERE action = ? ORDER BY timestamp DESC LIMIT ?").all(action, limit) as Receipt[];
     }
     if (duxAgentId) {
-      return this.db.prepare("SELECT * FROM cursus_receipts WHERE dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(duxAgentId, limit) as Receipt[];
+      return this.db.prepare("SELECT * FROM toba_receipts WHERE dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(duxAgentId, limit) as Receipt[];
     }
-    return this.db.prepare("SELECT * FROM cursus_receipts ORDER BY timestamp DESC LIMIT ?").all(limit) as Receipt[];
+    return this.db.prepare("SELECT * FROM toba_receipts ORDER BY timestamp DESC LIMIT ?").all(limit) as Receipt[];
   }
 
   clearResumes(): number {
-    const result = this.db.prepare("DELETE FROM cursus_resumes").run();
+    const result = this.db.prepare("DELETE FROM toba_resumes").run();
     return result.changes;
   }
 
   clearApplications(): number {
-    const tables = ["cursus_job_evaluations", "cursus_outreach", "cursus_applications"];
+    const tables = ["toba_job_evaluations", "toba_outreach", "toba_applications"];
     let changes = 0;
     for (const table of tables) changes += this.db.prepare(`DELETE FROM ${table}`).run().changes;
     return changes;
   }
 
   clearCampaigns(): number {
-    const tables = ["cursus_search_lanes", "cursus_job_evaluations", "cursus_outreach", "cursus_applications", "cursus_campaigns"];
+    const tables = ["toba_search_lanes", "toba_job_evaluations", "toba_outreach", "toba_applications", "toba_campaigns"];
     let changes = 0;
     for (const table of tables) changes += this.db.prepare(`DELETE FROM ${table}`).run().changes;
     return changes;
   }
 
   clearReceipts(): number {
-    return this.db.prepare("DELETE FROM cursus_receipts").run().changes;
+    return this.db.prepare("DELETE FROM toba_receipts").run().changes;
   }
 
   clearAutomation(): number {
-    return this.db.prepare("DELETE FROM cursus_automation").run().changes;
+    return this.db.prepare("DELETE FROM toba_automation").run().changes;
   }
 
   clearDuxSessions(): number {
-    return this.db.prepare("DELETE FROM cursus_dux_sessions").run().changes;
+    return this.db.prepare("DELETE FROM toba_dux_sessions").run().changes;
   }
 
   clearInterviewStories(): number {
-    return this.db.prepare("DELETE FROM cursus_interview_stories").run().changes;
+    return this.db.prepare("DELETE FROM toba_interview_stories").run().changes;
   }
 
   clearDuxProviderConfig(): number {
     const now = new Date().toISOString();
     return this.db.prepare(`
-      UPDATE cursus_dux_agents SET
+      UPDATE toba_dux_agents SET
         provider = NULL,
         model = NULL,
         base_url = NULL,
@@ -1864,12 +1864,12 @@ export class TobaV2DB {
   // ── Search Lanes ──────────────────────────────────────────────────────────
 
   listSearchLanes(campaignId?: string): SearchLane[] {
-    if (campaignId) return this.db.prepare("SELECT * FROM cursus_search_lanes WHERE campaign_id = ? ORDER BY priority, created_at").all(campaignId) as SearchLane[];
-    return this.db.prepare("SELECT * FROM cursus_search_lanes ORDER BY priority, created_at").all() as SearchLane[];
+    if (campaignId) return this.db.prepare("SELECT * FROM toba_search_lanes WHERE campaign_id = ? ORDER BY priority, created_at").all(campaignId) as SearchLane[];
+    return this.db.prepare("SELECT * FROM toba_search_lanes ORDER BY priority, created_at").all() as SearchLane[];
   }
 
   getSearchLane(id: string): SearchLane | null {
-    return this.db.prepare("SELECT * FROM cursus_search_lanes WHERE id = ?").get(id) as SearchLane | null;
+    return this.db.prepare("SELECT * FROM toba_search_lanes WHERE id = ?").get(id) as SearchLane | null;
   }
 
   createSearchLane(data: {
@@ -1881,7 +1881,7 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO cursus_search_lanes (id, campaign_id, name, target_titles, keywords, negative_keywords, locations, remote_preference, source_filters, priority, created_at)
+      `INSERT INTO toba_search_lanes (id, campaign_id, name, target_titles, keywords, negative_keywords, locations, remote_preference, source_filters, priority, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.campaign_id, data.name,
@@ -1910,27 +1910,27 @@ export class TobaV2DB {
     }
     if (fields.length === 0) return this.getSearchLane(id);
     values.push(id);
-    this.db.prepare(`UPDATE cursus_search_lanes SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_search_lanes SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getSearchLane(id);
   }
 
   deleteSearchLane(id: string): boolean {
-    return this.db.prepare("DELETE FROM cursus_search_lanes WHERE id = ?").run(id).changes > 0;
+    return this.db.prepare("DELETE FROM toba_search_lanes WHERE id = ?").run(id).changes > 0;
   }
 
   getActiveSearchLanes(campaignId: string): SearchLane[] {
-    return this.db.prepare("SELECT * FROM cursus_search_lanes WHERE campaign_id = ? AND active = 1 ORDER BY priority").all(campaignId) as SearchLane[];
+    return this.db.prepare("SELECT * FROM toba_search_lanes WHERE campaign_id = ? AND active = 1 ORDER BY priority").all(campaignId) as SearchLane[];
   }
 
   // ── Job Evaluations ────────────────────────────────────────────────────────
 
   listJobEvaluations(applicationId?: string): JobEvaluation[] {
-    if (applicationId) return this.db.prepare("SELECT * FROM cursus_job_evaluations WHERE application_id = ? ORDER BY created_at DESC").all(applicationId) as JobEvaluation[];
-    return this.db.prepare("SELECT * FROM cursus_job_evaluations ORDER BY created_at DESC").all() as JobEvaluation[];
+    if (applicationId) return this.db.prepare("SELECT * FROM toba_job_evaluations WHERE application_id = ? ORDER BY created_at DESC").all(applicationId) as JobEvaluation[];
+    return this.db.prepare("SELECT * FROM toba_job_evaluations ORDER BY created_at DESC").all() as JobEvaluation[];
   }
 
   getJobEvaluation(id: string): JobEvaluation | null {
-    return this.db.prepare("SELECT * FROM cursus_job_evaluations WHERE id = ?").get(id) as JobEvaluation | null;
+    return this.db.prepare("SELECT * FROM toba_job_evaluations WHERE id = ?").get(id) as JobEvaluation | null;
   }
 
   createJobEvaluation(data: {
@@ -1941,7 +1941,7 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO cursus_job_evaluations (id, application_id, role_summary, fit_analysis, gap_strategy, compensation_notes, resume_plan, interview_prep, legitimacy_grade, overall_grade, created_at)
+      `INSERT INTO toba_job_evaluations (id, application_id, role_summary, fit_analysis, gap_strategy, compensation_notes, resume_plan, interview_prep, legitimacy_grade, overall_grade, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.application_id, data.role_summary, data.fit_analysis,
@@ -1955,11 +1955,11 @@ export class TobaV2DB {
   // ── Interview Story Bank ───────────────────────────────────────────────────
 
   listStories(): InterviewStory[] {
-    return this.db.prepare("SELECT * FROM cursus_interview_stories ORDER BY created_at DESC").all() as InterviewStory[];
+    return this.db.prepare("SELECT * FROM toba_interview_stories ORDER BY created_at DESC").all() as InterviewStory[];
   }
 
   getStory(id: string): InterviewStory | null {
-    return this.db.prepare("SELECT * FROM cursus_interview_stories WHERE id = ?").get(id) as InterviewStory | null;
+    return this.db.prepare("SELECT * FROM toba_interview_stories WHERE id = ?").get(id) as InterviewStory | null;
   }
 
   createStory(data: {
@@ -1971,7 +1971,7 @@ export class TobaV2DB {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO cursus_interview_stories (id, title, format, situation, task, action, result, reflection, linked_project_ids, linked_experience_ids, tags, created_at)
+      `INSERT INTO toba_interview_stories (id, title, format, situation, task, action, result, reflection, linked_project_ids, linked_experience_ids, tags, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.title, data.format ?? "star",
@@ -1997,7 +1997,7 @@ export class TobaV2DB {
     }
     if (fields.length === 0) return this.getStory(id);
     values.push(id);
-    this.db.prepare(`UPDATE cursus_interview_stories SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_interview_stories SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getStory(id);
   }
 
@@ -2006,7 +2006,7 @@ export class TobaV2DB {
   getStaleApplications(staleDays = 7): Application[] {
     const cutoff = new Date(Date.now() - staleDays * 86_400_000).toISOString();
     return this.db.prepare(
-      `SELECT * FROM cursus_applications
+      `SELECT * FROM toba_applications
        WHERE status IN ('applied', 'responded')
          AND created_at < ?
          AND (follow_up_at IS NULL OR follow_up_at < ?)
@@ -2019,7 +2019,7 @@ export class TobaV2DB {
   recordFollowUp(id: string): Application | null {
     const now = new Date().toISOString();
     this.db.prepare(
-      "UPDATE cursus_applications SET last_follow_up_at = ?, follow_up_count = COALESCE(follow_up_count, 0) + 1, stale_notified = 0 WHERE id = ?"
+      "UPDATE toba_applications SET last_follow_up_at = ?, follow_up_count = COALESCE(follow_up_count, 0) + 1, stale_notified = 0 WHERE id = ?"
     ).run(now, id);
     return this.getApplication(id);
   }
@@ -2027,7 +2027,7 @@ export class TobaV2DB {
   setFollowUpCadence(id: string, days: number): Application | null {
     const followUpAt = new Date(Date.now() + days * 86_400_000).toISOString();
     this.db.prepare(
-      "UPDATE cursus_applications SET follow_up_cadence_days = ?, follow_up_at = ? WHERE id = ?"
+      "UPDATE toba_applications SET follow_up_cadence_days = ?, follow_up_at = ? WHERE id = ?"
     ).run(days, followUpAt, id);
     return this.getApplication(id);
   }
@@ -2047,7 +2047,7 @@ export class TobaV2DB {
     }
     if (fields.length === 0) return this.getApplication(id);
     values.push(id);
-    this.db.prepare(`UPDATE cursus_applications SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    this.db.prepare(`UPDATE toba_applications SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     return this.getApplication(id);
   }
 
@@ -2056,7 +2056,7 @@ export class TobaV2DB {
   }
 }
 
-// ── Backward-compat aliases (Cursus → Toba transition) ──────────────────────
-// DB table names (cursus_*) are intentionally preserved as stable schema identifiers.
-export { TobaV1DB as CursusV1DB, TobaV2DB as CursusV2DB, TOBA_SCHEMA_VERSION as CURSUS_SCHEMA_VERSION };
-export type { TobaProfile as CursusProfile, TobaExperience as CursusExperience, TobaCertification as CursusCertification, TobaProject as CursusProject, TobaSkill as CursusSkill, TobaProduct as CursusProduct, TobaProviderConfig as CursusProviderConfig, TobaStatus as CursusStatus };
+// ── Backward-compat aliases (Toba → Toba transition) ──────────────────────
+// DB table names (toba_*) are intentionally preserved as stable schema identifiers.
+export { TobaV1DB as TobaV1DB, TobaV2DB as TobaV2DB, TOBA_SCHEMA_VERSION as CURSUS_SCHEMA_VERSION };
+export type { TobaProfile as TobaProfile, TobaExperience as TobaExperience, TobaCertification as TobaCertification, TobaProject as TobaProject, TobaSkill as TobaSkill, TobaProduct as TobaProduct, TobaProviderConfig as TobaProviderConfig, TobaStatus as TobaStatus };

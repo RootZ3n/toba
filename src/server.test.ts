@@ -13,7 +13,7 @@ const SERVER_SOURCE = readFileSync(join(import.meta.dirname, "server.ts"), "utf-
 function buildApp() {
   const dir = join(tmpdir(), `toba-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
-  const dbPath = join(dir, "cursus.db");
+  const dbPath = join(dir, "toba.db");
   const v1 = new TobaV1DB(dbPath);
   const v2 = new TobaV2DB(dbPath);
   const app = Fastify();
@@ -96,7 +96,7 @@ describe("Toba standalone", () => {
   it("V1 and V2 both stamp same schema version", () => {
     const dir = join(tmpdir(), `toba-schema-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const dbPath = join(dir, "cursus.db");
+    const dbPath = join(dir, "toba.db");
     const v1 = new TobaV1DB(dbPath);
     const v2 = new TobaV2DB(dbPath);
     expect(v1.getSchemaVersion()).toBe(TOBA_SCHEMA_VERSION);
@@ -108,7 +108,7 @@ describe("Toba standalone", () => {
   it("isReachable returns true for valid DB", () => {
     const dir = join(tmpdir(), `toba-reach-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v1 = new TobaV1DB(join(dir, "cursus.db"));
+    const v1 = new TobaV1DB(join(dir, "toba.db"));
     expect(v1.isReachable()).toBe(true);
     v1.close();
     try { rmSync(dir, { recursive: true }); } catch {}
@@ -672,7 +672,7 @@ describe("Toba standalone", () => {
   it("factory reset script leaves a populated DB blank without touching schema", () => {
     const dir = join(tmpdir(), `toba-reset-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const dbPath = join(dir, "cursus.db");
+    const dbPath = join(dir, "toba.db");
     const v1 = new TobaV1DB(dbPath);
     const v2 = new TobaV2DB(dbPath);
     v1.updateProfile({ name: "Test Person", title: "Platform Engineer" });
@@ -773,7 +773,7 @@ describe("Toba standalone", () => {
   it("only one active campaign at any time (DB level)", () => {
     const dir = join(tmpdir(), `toba-single-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v2 = new TobaV2DB(join(dir, "cursus.db"));
+    const v2 = new TobaV2DB(join(dir, "toba.db"));
     v2.createCampaign("A", "Role A");
     v2.createCampaign("B", "Role B");
     v2.createCampaign("C", "Role C");
@@ -1022,8 +1022,8 @@ describe("Toba standalone", () => {
   it("shared DB: two instances don't corrupt", () => {
     const dir = join(tmpdir(), `toba-shared-${randomUUID()}`);
     mkdirSync(dir, { recursive: true });
-    const v2a = new TobaV2DB(join(dir, "cursus.db"));
-    const v2b = new TobaV2DB(join(dir, "cursus.db"));
+    const v2a = new TobaV2DB(join(dir, "toba.db"));
+    const v2b = new TobaV2DB(join(dir, "toba.db"));
     const camp = v2a.createCampaign("From A", "Engineer");
     expect(v2b.getCampaign(camp.id)!.name).toBe("From A");
     v2a.close(); v2b.close();
@@ -1253,7 +1253,7 @@ describe("Toba standalone", () => {
     await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
     // Backdate created_at to 10 days ago
-    v2["db"].prepare("UPDATE cursus_applications SET created_at = ? WHERE id = ?")
+    v2["db"].prepare("UPDATE toba_applications SET created_at = ? WHERE id = ?")
       .run(new Date(Date.now() - 10 * 86_400_000).toISOString(), appId);
 
     const stale = v2.getStaleApplications(7);
@@ -1272,7 +1272,7 @@ describe("Toba standalone", () => {
 
     // Backdate both created_at and follow_up_at
     const old = new Date(Date.now() - 10 * 86_400_000).toISOString();
-    v2["db"].prepare("UPDATE cursus_applications SET created_at = ?, follow_up_at = ? WHERE id = ?")
+    v2["db"].prepare("UPDATE toba_applications SET created_at = ?, follow_up_at = ? WHERE id = ?")
       .run(old, old, appId);
 
     const stale = v2.getStaleApplications(7);
@@ -1289,7 +1289,7 @@ describe("Toba standalone", () => {
     await app.inject({ method: "PATCH", url: `/toba/applications/${appId}`, payload: { status: "applied" } });
 
     // Backdate created_at but set follow_up_at in the future
-    v2["db"].prepare("UPDATE cursus_applications SET created_at = ?, follow_up_at = ? WHERE id = ?")
+    v2["db"].prepare("UPDATE toba_applications SET created_at = ?, follow_up_at = ? WHERE id = ?")
       .run(new Date(Date.now() - 10 * 86_400_000).toISOString(), new Date(Date.now() + 3 * 86_400_000).toISOString(), appId);
 
     const stale = v2.getStaleApplications(7);
@@ -1620,7 +1620,7 @@ describe("Toba standalone", () => {
   });
 
   it("optional bridge URL surfaces in /status without changing standalone mode", async () => {
-    process.env["CURSUS_BRIDGE_URL"] = "http://127.0.0.1:18791/cursus/bridge";
+    process.env["CURSUS_BRIDGE_URL"] = "http://127.0.0.1:18791/toba/bridge";
     // routes.ts reads CURSUS_BRIDGE_URL at module init, so build a fresh app
     // in a fresh require — vitest caches modules, so the simplest reliable
     // check is via /status seeing bridge_enabled flip. registerRoutes captures
@@ -1817,13 +1817,13 @@ describe("Toba standalone", () => {
   });
 
   it("OpenRouter respects HTTP-Referer when CURSUS_OPENROUTER_REFERER is set (backward compat)", async () => {
-    process.env["CURSUS_OPENROUTER_REFERER"] = "https://cursus.local";
+    process.env["CURSUS_OPENROUTER_REFERER"] = "https://toba.local";
     const { buildRequestPreview } = await import("./provider.js");
     const preview = buildRequestPreview(
       { provider: "openrouter", model: "deepseek/deepseek-v4-pro", base_url: "https://openrouter.ai/api/v1", api_key: "k", local_only: false },
       { messages: [{ role: "user", content: "x" }] },
     );
-    expect(preview.headers["HTTP-Referer"]).toBe("https://cursus.local");
+    expect(preview.headers["HTTP-Referer"]).toBe("https://toba.local");
     delete process.env["CURSUS_OPENROUTER_REFERER"];
   });
 

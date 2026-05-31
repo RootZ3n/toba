@@ -1168,9 +1168,9 @@ async function renderSettings(root) {
       clearAction("Clear receipts", "/toba/receipts"),
       clearAction("Clear automation queue", "/toba/automation")),
     el("p", { class: "small muted" }, "Factory reset / release reset:"),
-    el("pre", {}, "cd /mnt/ai/cursus && scripts/toba-reset.sh --personal-data-only --dry-run\ncd /mnt/ai/cursus && scripts/toba-reset.sh --personal-data-only"),
+    el("pre", {}, "cd /mnt/ai/toba && scripts/toba-reset.sh --personal-data-only --dry-run\ncd /mnt/ai/toba && scripts/toba-reset.sh --personal-data-only"),
     el("p", { class: "small muted" }, "Release privacy audit:"),
-    el("pre", {}, "cd /mnt/ai/cursus && scripts/audit-release-privacy.sh")));
+    el("pre", {}, "cd /mnt/ai/toba && scripts/audit-release-privacy.sh")));
 
   // Helpful CLI hints
   root.appendChild(el("div", { class: "card" },
@@ -1180,5 +1180,5 @@ async function renderSettings(root) {
     el("p", { class: "small muted" }, "Verify standalone posture:"),
     el("pre", {}, "/mnt/ai/toba/scripts/verify-standalone.sh"),
     el("p", { class: "small muted" }, "Reconfigure providers / Tailscale:"),
-    el("pre", {}, "cd /mnt/ai/cursus && pnpm run toba:setup")));
+    el("pre", {}, "cd /mnt/ai/toba && pnpm run toba:setup")));
 }

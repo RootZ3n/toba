@@ -1,30 +1,30 @@
-# Cursus Data Contract
+# Toba Data Contract
 
 ## User-owned data (never auto-overwrite)
 | Table | Owner | Notes |
 |---|---|---|
-| `cursus_profile` | User | Name, title, summary, location. Editable via PATCH. |
-| `cursus_experience` | User | Work history entries. |
-| `cursus_certifications` | User | Cert status, dates. Only user marks complete. |
-| `cursus_projects` | User | Portfolio projects. |
-| `cursus_products` | User | Product catalog. |
-| `cursus_skills` | User | Skills inventory. |
-| `cursus_resumes` | User | Resume texts. Velum-reviewed on ingest. |
-| `cursus_interview_stories` | User | STAR stories. User creates/edits. |
-| `cursus_onboarding` | User | Onboarding preferences. |
+| `toba_profile` | User | Name, title, summary, location. Editable via PATCH. |
+| `toba_experience` | User | Work history entries. |
+| `toba_certifications` | User | Cert status, dates. Only user marks complete. |
+| `toba_projects` | User | Portfolio projects. |
+| `toba_products` | User | Product catalog. |
+| `toba_skills` | User | Skills inventory. |
+| `toba_resumes` | User | Resume texts. Velum-reviewed on ingest. |
+| `toba_interview_stories` | User | STAR stories. User creates/edits. |
+| `toba_onboarding` | User | Onboarding preferences. |
 
 ## System-managed data (auto-created, system-maintained)
 | Table | Owner | Notes |
 |---|---|---|
-| `cursus_campaigns` | System+User | User creates; system enforces one-active. |
-| `cursus_search_lanes` | System+User | User defines; system uses for job scout context. |
-| `cursus_applications` | System+User | Job scout auto-creates; user updates status. |
-| `cursus_job_evaluations` | System | Generated evaluation reports. |
-| `cursus_outreach` | System+User | Staged by system; approved/rejected by user. |
-| `cursus_automation` | System | Task queue. User approves/rejects. |
-| `cursus_dux_sessions` | System | Chat session logs. |
-| `cursus_receipts` | System | Immutable audit trail. Never deleted. |
-| `cursus_meta` | System | Schema version tracking. |
+| `toba_campaigns` | System+User | User creates; system enforces one-active. |
+| `toba_search_lanes` | System+User | User defines; system uses for job scout context. |
+| `toba_applications` | System+User | Job scout auto-creates; user updates status. |
+| `toba_job_evaluations` | System | Generated evaluation reports. |
+| `toba_outreach` | System+User | Staged by system; approved/rejected by user. |
+| `toba_automation` | System | Task queue. User approves/rejects. |
+| `toba_dux_sessions` | System | Chat session logs. |
+| `toba_receipts` | System | Immutable audit trail. Never deleted. |
+| `toba_meta` | System | Schema version tracking. |
 
 ## Safety rules
 1. **No auto-submission**: Applications are never submitted without explicit user approval.
@@ -38,8 +38,8 @@
 ## Files
 | Path | Type | Notes |
 |---|---|---|
-| `state/cursus.db` | DB | Single SQLite file, WAL mode. |
-| `apps/cursus/src/db.ts` | Code | Schema + all DB operations. |
-| `apps/cursus/src/routes.ts` | Code | All HTTP endpoints. |
-| `apps/cursus/src/server.ts` | Code | Fastify bootstrap. |
-| `apps/cursus/src/server.test.ts` | Code | 63 tests covering all features. |
+| `state/toba.db` | DB | Single SQLite file, WAL mode. |
+| `apps/toba/src/db.ts` | Code | Schema + all DB operations. |
+| `apps/toba/src/routes.ts` | Code | All HTTP endpoints. |
+| `apps/toba/src/server.ts` | Code | Fastify bootstrap. |
+| `apps/toba/src/server.test.ts` | Code | 63 tests covering all features. |

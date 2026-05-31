@@ -2,7 +2,7 @@
  * Toba — Route Registration
  * =========================
  * All /toba/* and top-level health/version/status routes.
- * Backward-compat: /cursus/* URLs are rewritten to /toba/* by the server.
+ * Backward-compat: /toba/* URLs are rewritten to /toba/* by the server.
  */
 
 import type { FastifyInstance } from "fastify";
@@ -1107,8 +1107,8 @@ export function registerRoutes(
 
   /**
    * Run a Dux chat turn. Single implementation used by both the legacy
-   * /cursus/dux/chat (with optional body.agent_id) and the agent-scoped
-   * /cursus/dux/agents/:agentId/chat endpoint.
+   * /toba/dux/chat (with optional body.agent_id) and the agent-scoped
+   * /toba/dux/agents/:agentId/chat endpoint.
    */
   async function runDuxChat(
     body: {

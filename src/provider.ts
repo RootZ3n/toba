@@ -106,7 +106,7 @@ export class ProviderError extends Error {
 // ── Config (in-process, runtime mutable) ────────────────────────────────────
 
 // Env helper: TOBA_* preferred, CURSUS_* fallback
-const penv = (toba: string, cursus: string) => process.env[toba] ?? process.env[cursus];
+const penv = (toba: string, toba: string) => process.env[toba] ?? process.env[toba];
 
 function defaultConfigFromEnv(): ProviderConfig {
   const provider = (penv("TOBA_PROVIDER", "CURSUS_PROVIDER") ?? "none").toLowerCase();

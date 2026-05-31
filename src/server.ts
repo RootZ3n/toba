@@ -6,7 +6,7 @@
  * Environment (TOBA_* preferred, CURSUS_* accepted as fallback):
  *   TOBA_PORT                      — listen port (default 18815)
  *   TOBA_HOST                      — listen host (default 127.0.0.1)
- *   TOBA_DB_PATH                   — path to toba.db (default /var/lib/cursus/cursus.db,
+ *   TOBA_DB_PATH                   — path to toba.db (default /var/lib/toba/toba.db,
  *                                     falls back to legacy paths if they exist)
  *   TOBA_VERSION                   — reported version string
  *   TOBA_CORS_ORIGIN               — CORS origin (default *)
@@ -30,11 +30,11 @@ import { registerRoutes } from "./routes.js";
 import { loadNetworkConfig } from "./network.js";
 
 // Env helper: TOBA_* preferred, CURSUS_* fallback
-const env = (toba: string, cursus: string, fallback?: string) =>
-  process.env[toba] ?? process.env[cursus] ?? fallback;
+const env = (toba: string, toba: string, fallback?: string) =>
+  process.env[toba] ?? process.env[toba] ?? fallback;
 
-const CANONICAL_DB = "/var/lib/cursus/cursus.db";
-const LEGACY_DB = "/mnt/ai/peh-v2/state/cursus.db";
+const CANONICAL_DB = "/var/lib/toba/toba.db";
+const LEGACY_DB = "/mnt/ai/peh-v2/state/toba.db";
 const DB_PATH = env("TOBA_DB_PATH", "CURSUS_DB_PATH") ??
   (existsSync(CANONICAL_DB) || !existsSync(LEGACY_DB) ? CANONICAL_DB : LEGACY_DB);
 const CORS_ORIGIN = env("TOBA_CORS_ORIGIN", "CURSUS_CORS_ORIGIN", "*")!;
@@ -51,9 +51,9 @@ async function main() {
 
   const server = Fastify({
     logger: { level: "info" },
-    // Backward compatibility: /cursus/* → /toba/*
+    // Backward compatibility: /toba/* → /toba/*
     rewriteUrl: (req) => {
-      if (req.url?.startsWith("/cursus/")) {
+      if (req.url?.startsWith("/toba/")) {
         return "/toba/" + req.url.slice(8);
       }
       return req.url!;
