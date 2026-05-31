@@ -34,7 +34,7 @@ const env = (toba: string, cursus: string, fallback?: string) =>
   process.env[toba] ?? process.env[cursus] ?? fallback;
 
 const CANONICAL_DB = "/var/lib/cursus/cursus.db";
-const LEGACY_DB = "/mnt/ai/squidley-v2/state/cursus.db";
+const LEGACY_DB = "/mnt/ai/peh-v2/state/cursus.db";
 const DB_PATH = env("TOBA_DB_PATH", "CURSUS_DB_PATH") ??
   (existsSync(CANONICAL_DB) || !existsSync(LEGACY_DB) ? CANONICAL_DB : LEGACY_DB);
 const CORS_ORIGIN = env("TOBA_CORS_ORIGIN", "CURSUS_CORS_ORIGIN", "*")!;

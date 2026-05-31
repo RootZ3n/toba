@@ -8,7 +8,7 @@
 #   ./scripts/verify-standalone.sh
 #   TOBA_URL=http://127.0.0.1:18815 ./scripts/verify-standalone.sh
 #
-# Intentionally does not touch Squidley. If Squidley is running it is
+# Intentionally does not touch Peh. If Peh is running it is
 # irrelevant; if it is stopped that is the strongest possible signal of
 # independence.
 
@@ -39,7 +39,7 @@ check "GET /version reports service=toba"  '[ "$(curl -fsS '"$TOBA_URL"'/version
 check "GET /version reports v5+ schema"      '[ "$(curl -fsS '"$TOBA_URL"'/version | jq -r .schema_version)" -ge 5 ]'
 
 echo ""
-echo "[2] Standalone mode (no Squidley required)"
+echo "[2] Standalone mode (no Peh required)"
 status_json="$(curl -fsS "$TOBA_URL/status")"
 export status_json
 check "mode == standalone"             '[ "$(echo "$status_json" | jq -r .mode)" = "standalone" ]'
@@ -110,7 +110,7 @@ export v_json
 check "POST /toba/velum/review redacted phone"     'echo "$v_json" | jq -e ".velum.fields_redacted | contains([\"phone\"])"'
 
 echo ""
-echo "[11] No outbound Squidley dependency in surface output"
+echo "[11] No outbound Peh dependency in surface output"
 combined="$(echo "$status_json $prov_json $chat_json")"
 export combined
 check "no 18791 leaks in standard responses"           '! echo "$combined" | grep -q "18791"'

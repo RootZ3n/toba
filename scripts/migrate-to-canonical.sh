@@ -2,7 +2,7 @@
 # Toba migration to canonical /mnt/ai/cursus
 # =============================================
 # One-shot migration script for moving the live Toba service from the legacy
-# /mnt/ai/squidley-v2/apps/cursus path to /mnt/ai/cursus (the standalone path).
+# /mnt/ai/peh-v2/apps/cursus path to /mnt/ai/cursus (the standalone path).
 #
 # Requires sudo for stopping the service, installing the unit, and reloading systemd.
 #
@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-LEGACY_DB_DIR="${TOBA_LEGACY_DB_DIR:-/mnt/ai/squidley-v2/state}"
+LEGACY_DB_DIR="${TOBA_LEGACY_DB_DIR:-/mnt/ai/peh-v2/state}"
 CANONICAL_DB_DIR="/mnt/ai/cursus/state"
 SERVICE_SRC="/mnt/ai/cursus/toba.service"
 SERVICE_DST="/etc/systemd/system/toba.service"

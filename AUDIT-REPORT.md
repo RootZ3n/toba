@@ -49,7 +49,7 @@
 - No metadata about provider/model in any output.
 
 ### H. Bridge Behavior
-- Mode system existed in Squidley API (cursus-mode.test.ts), but standalone had no /status endpoint showing its mode.
+- Mode system existed in Peh API (cursus-mode.test.ts), but standalone had no /status endpoint showing its mode.
 
 ---
 
@@ -122,7 +122,7 @@
 
 ### H. Bridge Behavior
 - **Added `GET /status`** — returns operational status:
-  - mode: "standalone" or "bridge" (based on SQUIDLEY_CURSUS_URL)
+  - mode: "standalone" or "bridge" (based on PEH_CURSUS_URL)
   - port, provider_mode, active_campaign, receipts_enabled, velum_enabled
 - **1 status test:** verifies standalone mode and all fields
 
@@ -233,14 +233,14 @@ Typecheck: Clean (0 errors)
 
 ## Remaining Deferred Work
 
-1. **Dux chat in standalone** — Returns 503. Needs CURSUS_PROVIDER to actually call an LLM (OpenRouter, Ollama, etc.). Provider integration is wired for config but actual LLM calls are not implemented in standalone. This is by design — Squidley bridge handles it.
+1. **Dux chat in standalone** — Returns 503. Needs CURSUS_PROVIDER to actually call an LLM (OpenRouter, Ollama, etc.). Provider integration is wired for config but actual LLM calls are not implemented in standalone. This is by design — Peh bridge handles it.
 
 2. **Job Scout actual execution** — The `GET /cursus/job-scout/context` endpoint provides campaign-aware queries, and `POST /cursus/job-scout/ingest` persists results. The actual job search execution (RSS/Tavily/LLM) remains in Legatus agents. To make standalone Job Scout fully independent, an execution engine would need to be added.
 
-3. **Gmail integration** — Remains Squidley-only (OAuth, send). Not ported to standalone.
+3. **Gmail integration** — Remains Peh-only (OAuth, send). Not ported to standalone.
 
 4. **Web UI updates** — The stop button in `apps/web/app/cursus/page.tsx` already uses PATCH. Could be updated to use the new `POST /campaigns/:id/close` endpoint. Receipts viewer and Velum status could be added to the UI.
 
 5. **Velum cloud-call interception** — Current Velum reviews text before storage. When cloud provider calls are added to standalone, Velum should intercept outbound payloads too.
 
-6. **Squidley API route deduplication** — `apps/api/src/routes/cursus.ts` and `apps/api/src/db/cursus.ts` duplicate V1 schema/logic. Could be refactored to import from apps/cursus shared core, but this is lower priority since the bridge mode already proxies to standalone.
+6. **Peh API route deduplication** — `apps/api/src/routes/cursus.ts` and `apps/api/src/db/cursus.ts` duplicate V1 schema/logic. Could be refactored to import from apps/cursus shared core, but this is lower priority since the bridge mode already proxies to standalone.

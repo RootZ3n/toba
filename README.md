@@ -1,10 +1,10 @@
 # Cursus — Career Change Command Center (Standalone)
 
-**Cursus is a standalone product.** Squidley is **not required**. Cursus runs
+**Cursus is a standalone product.** Peh is **not required**. Cursus runs
 on its own port (18815), with its own SQLite DB, its own provider/model
 registry, its own Velum redactor, and its own receipts table.
 
-If Squidley is stopped, Cursus keeps working.
+If Peh is stopped, Cursus keeps working.
 
 | Field | Value |
 | --- | --- |
@@ -210,12 +210,12 @@ Per-agent guarantees:
 - Global `CURSUS_LOCAL_ONLY=true` blocks setting any cloud provider on any agent.
 - `dux_agent_chat` receipts record agent_id + provider + model + local_mode + velum review state.
 
-### Optional Squidley bridge
+### Optional Peh bridge
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSUS_BRIDGE_URL` | (unset, **disabled**) | Legacy Squidley bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Cursus core behavior never depends on it. |
-| `SQUIDLEY_CURSUS_URL` | — | Backwards-compatible alias of `CURSUS_BRIDGE_URL`. |
+| `CURSUS_BRIDGE_URL` | (unset, **disabled**) | Legacy Peh bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Cursus core behavior never depends on it. |
+| `PEH_CURSUS_URL` | — | Backwards-compatible alias of `CURSUS_BRIDGE_URL`. |
 
 ## API surface (selected)
 
@@ -236,8 +236,8 @@ Per-agent guarantees:
 ## Standalone verification
 
 ```bash
-# Confirm the service runs without Squidley
-sudo systemctl stop squidley.service   # or any *.service that's running
+# Confirm the service runs without Peh
+sudo systemctl stop peh.service   # or any *.service that's running
 sudo systemctl restart cursus.service
 
 # Run the verification suite
@@ -330,7 +330,7 @@ CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
 
 ## Migration: legacy path → canonical
 
-The service previously lived at `/mnt/ai/squidley-v2/apps/cursus`. To move it
+The service previously lived at `/mnt/ai/peh-v2/apps/cursus`. To move it
 to the standalone canonical path `/mnt/ai/cursus`:
 
 ```bash
@@ -347,7 +347,7 @@ The legacy DB file is left in place as backup.
 ## Independence guarantees
 
 1. `src/server.ts`, `src/routes.ts`, `src/db.ts`, `src/provider.ts` import
-   **zero** Squidley modules. (Verified by a test in `server.test.ts`.)
+   **zero** Peh modules. (Verified by a test in `server.test.ts`.)
 2. Job Scout uses only the local DB and the native provider registry.
 3. Velum is in-process, pattern-based, and runs before any provider call
    involving career data. (Verified by `Velum runs BEFORE the provider sees
@@ -383,7 +383,7 @@ or unset `CURSUS_LOCAL_ONLY`.
 ```bash
 pnpm test         # 86 tests covering health, schema, all CRUD,
                   # provider registry, dux chat, Velum-before-provider,
-                  # local-only enforcement, no-secret-leakage, no-Squidley-import,
+                  # local-only enforcement, no-secret-leakage, no-Peh-import,
                   # Job Scout standalone, receipts on provider calls.
 pnpm typecheck    # strict TypeScript
 pnpm build        # tsc emit

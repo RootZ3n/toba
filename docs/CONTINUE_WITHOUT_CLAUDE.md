@@ -4,7 +4,7 @@
 
 Cursus is the standalone career change command center. Runs on port 18815
 with its own SQLite DB (`state/cursus.db`), provider/model registry, Velum
-redactor, and receipts table. **Independent of Squidley.**
+redactor, and receipts table. **Independent of Peh.**
 
 ## Common commands
 

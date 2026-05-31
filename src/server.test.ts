@@ -1336,12 +1336,12 @@ describe("Toba standalone", () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // STANDALONE: Provider registry / no-Squidley independence
+  // STANDALONE: Provider registry / no-Peh independence
   // ══════════════════════════════════════════════════════════════════════════
 
   it("status reports standalone mode and bridge disabled by default", async () => {
     delete process.env["CURSUS_BRIDGE_URL"];
-    delete process.env["SQUIDLEY_CURSUS_URL"];
+    delete process.env["PEH_CURSUS_URL"];
     const { app } = create();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/status" });
@@ -1584,8 +1584,8 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "none", model: "none" });
   });
 
-  it("Job Scout context endpoint is standalone (no Squidley required)", async () => {
-    delete process.env["SQUIDLEY_CURSUS_URL"];
+  it("Job Scout context endpoint is standalone (no Peh required)", async () => {
+    delete process.env["PEH_CURSUS_URL"];
     delete process.env["CURSUS_BRIDGE_URL"];
     const { app } = create();
     await app.ready();
@@ -1634,22 +1634,22 @@ describe("Toba standalone", () => {
     delete process.env["CURSUS_BRIDGE_URL"];
   });
 
-  it("no test artifact loads a Squidley import or references port 18791 in routes/server/provider", () => {
+  it("no test artifact loads a Peh import or references port 18791 in routes/server/provider", () => {
     // Defensive: read the source modules and make sure no live import of
-    // anything Squidley-only sneaks in. README is allowed to mention bridge.
+    // anything Peh-only sneaks in. README is allowed to mention bridge.
     const routes = readFileSync(join(import.meta.dirname, "routes.ts"), "utf-8");
     const provider = readFileSync(join(import.meta.dirname, "provider.ts"), "utf-8");
     const server = readFileSync(join(import.meta.dirname, "server.ts"), "utf-8");
     for (const src of [routes, provider, server]) {
-      expect(src).not.toMatch(/from\s+['"][^'"]*squidley[^'"]*['"]/i);
+      expect(src).not.toMatch(/from\s+['"][^'"]*peh[^'"]*['"]/i);
       expect(src).not.toMatch(/from\s+['"][^'"]*legatus[^'"]*['"]/i);
       expect(src).not.toMatch(/127\.0\.0\.1:18791/);
     }
   });
 
-  // Sanity: the server module itself must compile + run without any Squidley env var set.
-  it("server source contains no required Squidley env var", () => {
-    expect(SERVER_SOURCE).not.toMatch(/process\.env\["SQUIDLEY_[A-Z_]+"]\s*\?\?\s*[a-z]/i);
+  // Sanity: the server module itself must compile + run without any Peh env var set.
+  it("server source contains no required Peh env var", () => {
+    expect(SERVER_SOURCE).not.toMatch(/process\.env\["PEH_[A-Z_]+"]\s*\?\?\s*[a-z]/i);
   });
 
   // ══════════════════════════════════════════════════════════════════════════

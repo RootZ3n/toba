@@ -45,7 +45,7 @@ const TOBA_PORT = parseInt(process.env["TOBA_PORT"] ?? process.env["CURSUS_PORT"
 const TOBA_AUTOMATION_MODE = process.env["TOBA_AUTOMATION_MODE"] ?? process.env["TOBA_AUTOMATION_MODE"] ?? "approval-required";
 // Optional legacy bridge URL — disabled by default. Bridge is for legacy
 // integrations only and is NOT required.
-const TOBA_BRIDGE_URL = process.env["TOBA_BRIDGE_URL"] ?? process.env["CURSUS_BRIDGE_URL"] ?? process.env["SQUIDLEY_CURSUS_URL"] ?? "";
+const TOBA_BRIDGE_URL = process.env["TOBA_BRIDGE_URL"] ?? process.env["CURSUS_BRIDGE_URL"] ?? process.env["PEH_CURSUS_URL"] ?? "";
 
 function listToJson(value: unknown): string | undefined {
   if (value === undefined) return undefined;

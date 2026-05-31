@@ -5,7 +5,7 @@
 **Schema:** 4 (was 3)
 **Tests:** 52 passed, 0 failed (was 40)
 **Typecheck:** Clean
-**Both locations verified:** /mnt/ai/cursus/ and /mnt/ai/squidley-v2/apps/cursus/
+**Both locations verified:** /mnt/ai/cursus/ and /mnt/ai/peh-v2/apps/cursus/
 
 ---
 
@@ -73,7 +73,7 @@
 
 ## 4. New UI Sections
 
-**No UI was modified.** The existing Squidley web UI at `apps/web/app/cursus/page.tsx` was not changed. All new features are backend API endpoints ready for UI integration. The onboarding, analytics, and automation APIs return complete JSON payloads suitable for frontend rendering.
+**No UI was modified.** The existing Peh web UI at `apps/web/app/cursus/page.tsx` was not changed. All new features are backend API endpoints ready for UI integration. The onboarding, analytics, and automation APIs return complete JSON payloads suitable for frontend rendering.
 
 ---
 

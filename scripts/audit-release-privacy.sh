@@ -16,7 +16,7 @@ fi
 patterns=(
   'Jeffrey[[:space:]]+Miller|Jeff[[:space:]]+Miller'
   'Moore,[[:space:]]*Oklahoma|Oklahoma[[:space:]]+City|Post-A\+[[:space:]]+Job[[:space:]]+Search[[:space:]]+2026'
-  'Squidley[[:space:]]+V2[[:space:]]+Architecture'
+  'Peh[[:space:]]+V2[[:space:]]+Architecture'
   '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
   '(\+?1[-.[:space:]]*)?(\([0-9]{3}\)|[0-9]{3})[-.[:space:]]*[0-9]{3}[-.[:space:]]*[0-9]{4}'
   'sk-or-[A-Za-z0-9_-]{12,}|sk-[A-Za-z0-9_-]{20,}'
