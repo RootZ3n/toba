@@ -37,23 +37,30 @@ const updateExisting = (table, assignments, where = "") => {
   return db.prepare(`UPDATE ${table} SET ${fields.join(", ")} ${where}`).run(...values).changes;
 };
 
-const tables = [
-  "cursus_resumes",
-  "cursus_search_lanes",
-  "cursus_job_evaluations",
-  "cursus_outreach",
-  "cursus_applications",
-  "cursus_campaigns",
-  "cursus_receipts",
-  "cursus_automation",
-  "cursus_dux_sessions",
-  "cursus_interview_stories",
-  "cursus_experience",
-  "cursus_certifications",
-  "cursus_projects",
-  "cursus_skills",
+// The active schema uses toba_* tables. Pre-rename (Cursus→Toba) databases may
+// also still carry legacy cursus_* copies holding old personal data. Clear BOTH
+// prefixes (every table is exists()-guarded) so a factory reset leaves no
+// personal data behind in either set. The previous version targeted only
+// cursus_*, so on a current toba_* DB it deleted nothing — the privacy bug.
+const TABLE_PREFIXES = ["toba_", "cursus_"];
+const BASE_TABLES = [
+  "resumes",
+  "search_lanes",
+  "job_evaluations",
+  "outreach",
+  "applications",
+  "campaigns",
+  "receipts",
+  "automation",
+  "dux_sessions",
+  "interview_stories",
+  "experience",
+  "certifications",
+  "projects",
+  "skills",
 ];
-if (mode === "--all-data") tables.push("cursus_products");
+if (mode === "--all-data") BASE_TABLES.push("products");
+const tables = BASE_TABLES.flatMap((base) => TABLE_PREFIXES.map((p) => `${p}${base}`));
 
 console.log("Current row counts:");
 for (const table of tables) console.log(`${table}: ${count(table)}`);
@@ -67,35 +74,37 @@ if (dryRun) {
 const tx = db.transaction(() => {
   const summary = {};
   for (const table of tables) summary[table] = del(table);
-  if (exists("cursus_profile")) {
-    updateExisting("cursus_profile", [
-      ["name", null], ["email", null], ["phone", null], ["title", null], ["summary", null],
-      ["location", null], ["work_preference", null], ["preferred_locations", null],
-      ["salary_min", null], ["salary_max", null], ["years_experience", null],
-      ["certifications", null], ["skills", null], ["links_json", null],
-      ["privacy_mode", "local-only"], ["provider_preference", null],
-      ["cover_employer", null], ["cover_role", null], ["cover_industry", null],
-      ["nda_active", 0], ["dream_job", null], ["gap_analysis", "[]"],
-      ["target_roles", "[]"], ["constraints_json", "{}"], ["updated_at", new Date().toISOString()],
-    ], "WHERE id = 1");
-  }
-  if (exists("cursus_onboarding")) {
-    updateExisting("cursus_onboarding", [
-      ["completed", 0], ["completed_at", null], ["name", null],
-      ["preferred_titles", null], ["work_preference", null],
-      ["preferred_locations", null], ["salary_min", null], ["salary_max", null],
-      ["years_experience", null], ["certifications", null],
-      ["resume_uploaded", 0], ["resume_id", null],
-      ["privacy_mode", "local-only"], ["updated_at", new Date().toISOString()],
-    ], "WHERE id = 1");
-  }
-  if (!keepProviderConfig && exists("cursus_dux_agents")) {
-    updateExisting("cursus_dux_agents", [
-      ["provider", null], ["model", null], ["base_url", null], ["api_key", null],
-      ["local_only", null], ["cloud_allowed", null], ["temperature", null],
-      ["max_tokens", null], ["fallback_provider", null], ["fallback_model", null],
-      ["updated_at", new Date().toISOString()],
-    ]);
+  for (const prefix of TABLE_PREFIXES) {
+    if (exists(`${prefix}profile`)) {
+      updateExisting(`${prefix}profile`, [
+        ["name", null], ["email", null], ["phone", null], ["title", null], ["summary", null],
+        ["location", null], ["work_preference", null], ["preferred_locations", null],
+        ["salary_min", null], ["salary_max", null], ["years_experience", null],
+        ["certifications", null], ["skills", null], ["links_json", null],
+        ["privacy_mode", "local-only"], ["provider_preference", null],
+        ["cover_employer", null], ["cover_role", null], ["cover_industry", null],
+        ["nda_active", 0], ["dream_job", null], ["gap_analysis", "[]"],
+        ["target_roles", "[]"], ["constraints_json", "{}"], ["updated_at", new Date().toISOString()],
+      ], "WHERE id = 1");
+    }
+    if (exists(`${prefix}onboarding`)) {
+      updateExisting(`${prefix}onboarding`, [
+        ["completed", 0], ["completed_at", null], ["name", null],
+        ["preferred_titles", null], ["work_preference", null],
+        ["preferred_locations", null], ["salary_min", null], ["salary_max", null],
+        ["years_experience", null], ["certifications", null],
+        ["resume_uploaded", 0], ["resume_id", null],
+        ["privacy_mode", "local-only"], ["updated_at", new Date().toISOString()],
+      ], "WHERE id = 1");
+    }
+    if (!keepProviderConfig && exists(`${prefix}dux_agents`)) {
+      updateExisting(`${prefix}dux_agents`, [
+        ["provider", null], ["model", null], ["base_url", null], ["api_key", null],
+        ["local_only", null], ["cloud_allowed", null], ["temperature", null],
+        ["max_tokens", null], ["fallback_provider", null], ["fallback_model", null],
+        ["updated_at", new Date().toISOString()],
+      ]);
+    }
   }
   return summary;
 });
