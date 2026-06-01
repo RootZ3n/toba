@@ -28,6 +28,7 @@ import { existsSync } from "node:fs";
 import { TobaV1DB, TobaV2DB } from "./db.js";
 import { registerRoutes } from "./routes.js";
 import { loadNetworkConfig } from "./network.js";
+import { rewriteRequestUrl } from "./rewrite.js";
 
 // Env helper: TOBA_* preferred, CURSUS_* fallback
 const env = (toba: string, cursus: string, fallback?: string) =>
@@ -51,13 +52,8 @@ async function main() {
 
   const server = Fastify({
     logger: { level: "info" },
-    // Backward compatibility: /toba/* → /toba/*
-    rewriteUrl: (req) => {
-      if (req.url?.startsWith("/toba/")) {
-        return "/toba/" + req.url.slice(8);
-      }
-      return req.url!;
-    },
+    // Backward compatibility: legacy /cursus/* paths are rewritten to /toba/*.
+    rewriteUrl: (req) => rewriteRequestUrl(req.url),
   });
 
   await server.register(cors, { origin: CORS_ORIGIN });

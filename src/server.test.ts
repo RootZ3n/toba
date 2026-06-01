@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { TobaV1DB, TobaV2DB, TOBA_SCHEMA_VERSION } from "./db.js";
 import { registerRoutes } from "./routes.js";
+import { rewriteRequestUrl } from "./rewrite.js";
 
 const SERVER_SOURCE = readFileSync(join(import.meta.dirname, "server.ts"), "utf-8");
 
@@ -2257,5 +2258,52 @@ describe("Toba standalone", () => {
     expect(body.context.remote_preference).toBe("any");
     expect(body.context.salary_range).toEqual({ min: 70000, max: 110000 });
     expect(body.effective.salary_min.source).toBe("onboarding");
+  });
+});
+
+// Regression guard for the BLOCKER where rewriteUrl did `"/toba/" + url.slice(8)`
+// against a 6-char "/toba/" prefix, dropping two chars and 404'ing every route.
+describe("server URL rewrite (B1 regression)", () => {
+  it("passes canonical /toba/* paths through unchanged", () => {
+    expect(rewriteRequestUrl("/toba/profile")).toBe("/toba/profile");
+    expect(rewriteRequestUrl("/toba/dux/agents")).toBe("/toba/dux/agents");
+    expect(rewriteRequestUrl("/health")).toBe("/health");
+    expect(rewriteRequestUrl(undefined)).toBe("/");
+  });
+
+  it("rewrites legacy /cursus/* paths onto /toba/*", () => {
+    expect(rewriteRequestUrl("/cursus/profile")).toBe("/toba/profile");
+    expect(rewriteRequestUrl("/cursus/dux/agents")).toBe("/toba/dux/agents");
+  });
+
+  it("never drops characters from a /toba/* path", () => {
+    for (const p of ["/toba/profile", "/toba/resumes", "/toba/applications", "/toba/onboarding", "/toba/x"]) {
+      expect(rewriteRequestUrl(p)).toBe(p);
+    }
+  });
+
+  it("GET /toba/profile resolves (not 404) through the real rewrite + routes", async () => {
+    const dir = join(tmpdir(), `toba-rewrite-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const dbPath = join(dir, "toba.db");
+    const v1 = new TobaV1DB(dbPath);
+    const v2 = new TobaV2DB(dbPath);
+    // Build the app exactly as server.ts does: rewriteUrl wired to rewriteRequestUrl.
+    const app = Fastify({ rewriteUrl: (req) => rewriteRequestUrl(req.url) });
+    registerRoutes(app, v1, v2);
+    await app.ready();
+    try {
+      const direct = await app.inject({ method: "GET", url: "/toba/profile" });
+      expect(direct.statusCode).not.toBe(404);
+      expect(direct.statusCode).toBe(200);
+      // Legacy path reaches the same handler via rewrite.
+      const legacy = await app.inject({ method: "GET", url: "/cursus/profile" });
+      expect(legacy.statusCode).not.toBe(404);
+    } finally {
+      await app.close();
+      v1.close();
+      v2.close();
+      rmSync(dir, { recursive: true });
+    }
   });
 });
