@@ -30,8 +30,8 @@ import { registerRoutes } from "./routes.js";
 import { loadNetworkConfig } from "./network.js";
 
 // Env helper: TOBA_* preferred, CURSUS_* fallback
-const env = (toba: string, toba: string, fallback?: string) =>
-  process.env[toba] ?? process.env[toba] ?? fallback;
+const env = (toba: string, cursus: string, fallback?: string) =>
+  process.env[toba] ?? process.env[cursus] ?? fallback;
 
 const CANONICAL_DB = "/var/lib/toba/toba.db";
 const LEGACY_DB = "/mnt/ai/peh-v2/state/toba.db";

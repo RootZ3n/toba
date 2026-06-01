@@ -2058,5 +2058,5 @@ export class TobaV2DB {
 
 // ── Backward-compat aliases (Toba → Toba transition) ──────────────────────
 // DB table names (toba_*) are intentionally preserved as stable schema identifiers.
-export { TobaV1DB as TobaV1DB, TobaV2DB as TobaV2DB, TOBA_SCHEMA_VERSION as CURSUS_SCHEMA_VERSION };
-export type { TobaProfile as TobaProfile, TobaExperience as TobaExperience, TobaCertification as TobaCertification, TobaProject as TobaProject, TobaSkill as TobaSkill, TobaProduct as TobaProduct, TobaProviderConfig as TobaProviderConfig, TobaStatus as TobaStatus };
+export { TobaV1DB as CursusV1DB, TobaV2DB as CursusV2DB, TOBA_SCHEMA_VERSION as CURSUS_SCHEMA_VERSION };
+export type { TobaProfile as CursusProfile, TobaExperience as CursusExperience, TobaCertification as CursusCertification, TobaProject as CursusProject, TobaSkill as CursusSkill, TobaProduct as CursusProduct, TobaProviderConfig as CursusProviderConfig, TobaStatus as CursusStatus };
