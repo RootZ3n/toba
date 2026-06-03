@@ -35,7 +35,7 @@ import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 
-export type ProviderId = "none" | "echo" | "ollama" | "openai" | "anthropic" | "openrouter" | string;
+export type ProviderId = "none" | "echo" | "ollama" | "openai" | "anthropic" | "openrouter" | "xiaomi" | string;
 
 export interface ProviderDef {
   id: ProviderId;
@@ -53,6 +53,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderDef> = {
   openai:     { id: "openai",     label: "OpenAI",                       local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.openai.com" },
   anthropic:  { id: "anthropic",  label: "Anthropic",                    local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.anthropic.com" },
   openrouter: { id: "openrouter", label: "OpenRouter (OpenAI-compat)",   local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://openrouter.ai/api/v1" },
+  xiaomi:     { id: "xiaomi",     label: "Xiaomi MiMo Direct",            local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.xiaomimimo.com/v1" },
 };
 
 export interface ProviderConfig {
@@ -93,7 +94,7 @@ export interface ChatResponse {
   model: string;
   local: boolean;
   finish_reason?: string;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: { input_tokens?: number; output_tokens?: number; cached_tokens?: number };
 }
 
 export class ProviderError extends Error {
@@ -120,6 +121,7 @@ function defaultConfigFromEnv(): ProviderConfig {
     provider === "openrouter" ? penv("TOBA_OPENROUTER_API_KEY", "CURSUS_OPENROUTER_API_KEY") :
     provider === "openai"     ? penv("TOBA_OPENAI_API_KEY", "CURSUS_OPENAI_API_KEY")     :
     provider === "anthropic"  ? penv("TOBA_ANTHROPIC_API_KEY", "CURSUS_ANTHROPIC_API_KEY")  :
+    provider === "xiaomi"    ? penv("TOBA_XIAOMI_API_KEY", "CURSUS_XIAOMI_API_KEY") ?? penv("TOBA_PROVIDER_API_KEY", "CURSUS_PROVIDER_API_KEY") :
     undefined;
   const api_key = apiKeyForProvider ?? penv("TOBA_PROVIDER_API_KEY", "CURSUS_PROVIDER_API_KEY") ?? "";
   const local_only = (penv("TOBA_LOCAL_ONLY", "CURSUS_LOCAL_ONLY") ?? "").toLowerCase() === "true";
@@ -294,11 +296,11 @@ async function chatOllama(req: ChatRequest, cfg: ProviderConfig): Promise<ChatRe
   };
 }
 
-async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerId: "openai" | "openrouter"): Promise<ChatResponse> {
+async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerId: "openai" | "openrouter" | "xiaomi"): Promise<ChatResponse> {
   const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
   // OpenAI uses /v1/chat/completions; OpenRouter's v1 is baked into its base URL,
   // so the path on OpenRouter is just /chat/completions.
-  const path = providerId === "openrouter" ? "/chat/completions" : "/v1/chat/completions";
+  const path = providerId === "openrouter" || providerId === "xiaomi" ? "/chat/completions" : "/v1/chat/completions";
   const headers: Record<string, string> = {
     "authorization": `Bearer ${cfg.api_key}`,
   };
@@ -319,16 +321,21 @@ async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerI
   }
   const parsed = JSON.parse(res.body) as {
     choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
   };
   const choice = parsed.choices?.[0];
+  const cachedTokens = parsed.usage?.prompt_tokens_details?.cached_tokens;
+  if (cachedTokens !== undefined && parsed.usage?.prompt_tokens && parsed.usage.prompt_tokens > 0) {
+    const hitPct = ((cachedTokens / parsed.usage.prompt_tokens) * 100).toFixed(1);
+    console.log(`[toba] Cache hit: ${cachedTokens} tokens (${hitPct}% of prompt)`);
+  }
   return {
     content: choice?.message?.content ?? "",
     provider: providerId,
     model: cfg.model,
     local: false,
     finish_reason: choice?.finish_reason,
-    usage: parsed.usage ? { input_tokens: parsed.usage.prompt_tokens, output_tokens: parsed.usage.completion_tokens } : undefined,
+    usage: parsed.usage ? { input_tokens: parsed.usage.prompt_tokens, output_tokens: parsed.usage.completion_tokens, cached_tokens: cachedTokens } : undefined,
   };
 }
 
@@ -345,10 +352,11 @@ export function buildRequestPreview(cfg: ProviderConfig, req: ChatRequest): {
 } {
   switch (cfg.provider) {
     case "openrouter":
+    case "xiaomi":
     case "openai": {
-      const providerId = cfg.provider as "openai" | "openrouter";
+      const providerId = cfg.provider as "openai" | "openrouter" | "xiaomi";
       const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
-      const path = providerId === "openrouter" ? "/chat/completions" : "/v1/chat/completions";
+      const path = providerId === "openrouter" || providerId === "xiaomi" ? "/chat/completions" : "/v1/chat/completions";
       const headers: Record<string, string> = {
         "authorization": cfg.api_key ? `Bearer [REDACTED:${cfg.api_key.length}]` : "Bearer [unset]",
       };
@@ -449,6 +457,7 @@ export async function chat(req: ChatRequest, overrides?: Partial<ProviderConfig>
     case "ollama":     return chatOllama(req, cfg);
     case "openai":     return chatOpenAICompat(req, cfg, "openai");
     case "openrouter": return chatOpenAICompat(req, cfg, "openrouter");
+    case "xiaomi":     return chatOpenAICompat(req, cfg, "xiaomi");
     case "anthropic":  return chatAnthropic(req, cfg);
     default:
       throw new ProviderError(400, "unknown_provider", `Provider "${cfg.provider}" has no adapter.`);
