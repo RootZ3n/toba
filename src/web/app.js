@@ -171,13 +171,13 @@ function paintChips() {
   setChip("status.exposure", s.network_exposure || "—",                          s.network_exposure === "loopback_only" ? "ok" : "cloud");
   setChip("status.provider", s.provider ? `${s.provider}/${s.model || "?"}` : "no provider",
                               s.provider_configured ? "ok" : (s.provider && s.provider !== "none" ? "warn" : ""));
-  setChip("status.version",  s.host ? `${s.host}:${s.port} · v${s.dux_agents ? "" : ""}schema${s._sv || ""}` : "toba");
+  setChip("status.version",  s.host ? `${s.host}:${s.port} · v${s.peh_agents ? "" : ""}schema${s._sv || ""}` : "toba");
 }
 
 // ── Routing ──────────────────────────────────────────────────────────────
 const ROUTES = {
   dashboard: renderDashboard,
-  dux:       renderDuxChat,
+  peh:       renderPehChat,
   profile:   renderProfile,
   agents:    renderAgents,
   campaigns: renderCampaigns,
@@ -245,7 +245,7 @@ async function renderDashboard(root) {
     mkStat("Provider",       s.provider || "none"),
     mkStat("Model",          s.model || "—"),
     mkStat("Local-only",     s.local_only_mode ? "yes" : "no"),
-    mkStat("Dux agents",     s.dux_agents ? `${s.dux_agents.enabled}/${s.dux_agents.total}` : "—"),
+    mkStat("Peh agents",     s.peh_agents ? `${s.peh_agents.enabled}/${s.peh_agents.total}` : "—"),
     mkStat("Pending approvals", String(s.pending_approvals ?? 0)),
     mkStat("Active campaign", s.active_campaign?.name || "—"),
     mkStat("Last Job Scout", s.last_job_scout_run ? fmtTime(s.last_job_scout_run) : "never"),
@@ -272,18 +272,18 @@ async function renderDashboard(root) {
   root.appendChild(recipientCard);
 }
 
-// ── Dux Chat ─────────────────────────────────────────────────────────────
-async function renderDuxChat(root) {
+// ── Peh Chat ─────────────────────────────────────────────────────────────
+async function renderPehChat(root) {
   if (!agentsCache) {
-    try { agentsCache = await api("/toba/dux/agents"); } catch (err) { agentsCache = { agents: [] }; }
+    try { agentsCache = await api("/toba/peh/agents"); } catch (err) { agentsCache = { agents: [] }; }
   }
   const uploadedResumes = await api("/toba/resumes").then(r => r.resumes || []).catch(() => []);
   const latestResume = uploadedResumes[0] || null;
   const resumeContextDefault = !!latestResume && latestResume.velum_reviewed === 1;
   root.innerHTML = "";
-  root.appendChild(el("h2", {}, "Dux Chat"));
+  root.appendChild(el("h2", {}, "Peh Chat"));
   root.appendChild(el("p", { class: "muted" },
-    "Talk to a Dux agent. Velum redacts your input before the provider sees it."));
+    "Talk to a Peh agent. Velum redacts your input before the provider sees it."));
 
   const shell = el("div", { class: "chat-shell" });
   const controls = el("div", { class: "chat-controls" });
@@ -302,8 +302,22 @@ async function renderDuxChat(root) {
     el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxCampaign", checked: true, style: "width:auto;" }), "Include active campaign"),
     el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxApplications", checked: true, style: "width:auto;" }), "Include applications/jobs"),
     el("label", { class: "row small" }, el("input", { type: "checkbox", id: "ctxReceipts", style: "width:auto;" }), "Include recent receipts"));
-  const clearBtn = el("button", { class: "btn-ghost", onclick: () => { log.innerHTML = ""; } }, "Clear");
+  const clearBtn = el("button", { class: "btn-ghost", onclick: () => { log.innerHTML = ""; tokenTotals = { in: 0, out: 0, cached: 0, msgs: 0 }; updateTokenFooter(); } }, "Clear");
   controls.append(agentSelect, velumChk, clearBtn);
+
+  // ── Token footer ─────────────────────────────────────────────────────
+  let tokenTotals = { in: 0, out: 0, cached: 0, msgs: 0 };
+  const tokenFooter = el("div", { class: "chat-tokens" });
+  function updateTokenFooter() {
+    const total = tokenTotals.in + tokenTotals.out;
+    tokenFooter.innerHTML = "";
+    tokenFooter.appendChild(el("span", { class: "tok-chip" }, `↑ ${tokenTotals.in.toLocaleString()} in`));
+    tokenFooter.appendChild(el("span", { class: "tok-chip" }, `↓ ${tokenTotals.out.toLocaleString()} out`));
+    if (tokenTotals.cached > 0) tokenFooter.appendChild(el("span", { class: "tok-chip tok-cached" }, `⚡ ${tokenTotals.cached.toLocaleString()} cached`));
+    tokenFooter.appendChild(el("span", { class: "tok-chip tok-total" }, `Σ ${total.toLocaleString()} total`));
+    tokenFooter.appendChild(el("span", { class: "tok-chip tok-msgs" }, `${tokenTotals.msgs} msgs`));
+  }
+  updateTokenFooter();
 
   const log = el("div", { class: "chat-log" });
   log.appendChild(el("div", { class: "chat-msg system" },
@@ -311,11 +325,11 @@ async function renderDuxChat(root) {
     "Ready. Pick an agent above (or use the global default) and send a message."));
 
   const form = el("form", { class: "chat-form" });
-  const ta = el("textarea", { placeholder: "Ask Dux…  (Enter to send · Shift+Enter for newline)" });
+  const ta = el("textarea", { placeholder: "Ask Peh…  (Enter to send · Shift+Enter for newline)" });
   const sendBtn = el("button", { class: "btn-primary", type: "submit" }, "Send");
   form.append(ta, sendBtn);
 
-  shell.append(controls, contextControls, log, form);
+  shell.append(controls, contextControls, log, form, tokenFooter);
   root.appendChild(shell);
 
   ta.addEventListener("keydown", (e) => {
@@ -333,9 +347,9 @@ async function renderDuxChat(root) {
     log.scrollTop = log.scrollHeight;
 
     const agentId = agentSelect.value;
-    const url = agentId ? `/toba/dux/agents/${agentId}/chat` : "/toba/dux/chat";
+    const url = agentId ? `/toba/peh/agents/${agentId}/chat` : "/toba/peh/chat";
     const placeholder = el("div", { class: "chat-msg assistant" },
-      el("div", { class: "who" }, agentId || "dux"),
+      el("div", { class: "who" }, agentId || "peh"),
       el("span", { class: "muted" }, "Thinking…"));
     log.appendChild(placeholder);
     log.scrollTop = log.scrollHeight;
@@ -354,7 +368,7 @@ async function renderDuxChat(root) {
       };
       const res = await api(url, { method: "POST", body });
       placeholder.innerHTML = "";
-      placeholder.appendChild(el("div", { class: "who" }, res.agent?.id || agentId || "dux"));
+      placeholder.appendChild(el("div", { class: "who" }, res.agent?.id || agentId || "peh"));
       placeholder.appendChild(el("div", { class: "markdown", html: markdownToHtml(res.reply || "") }));
       const metaBits = [];
       if (res.provider) metaBits.push(`${res.provider.provider}/${res.provider.model}${res.provider.local ? " · local" : " · cloud"}`);
@@ -368,6 +382,13 @@ async function renderDuxChat(root) {
         metaBits.push(`receipts:${res.context.receipts_included ?? 0}`);
       }
       if (res.usage) metaBits.push(`tokens in=${res.usage.input_tokens ?? "?"} out=${res.usage.output_tokens ?? "?"}`);
+      if (res.usage) {
+        tokenTotals.in += res.usage.input_tokens ?? 0;
+        tokenTotals.out += res.usage.output_tokens ?? 0;
+        tokenTotals.cached += res.usage.cached_tokens ?? 0;
+        tokenTotals.msgs++;
+        updateTokenFooter();
+      }
       if (res.finish_reason) metaBits.push(res.finish_reason);
       placeholder.appendChild(el("div", { class: "meta" }, metaBits.join(" · ")));
       if (res.context) {
@@ -531,17 +552,88 @@ async function renderProfile(root) {
       `Latest resume: ${latest.filename || latest.tailored_for || "pasted text"} · uploaded ${fmtTime(latest.uploaded_at || latest.created_at)} · ` +
       `Velum ${latest.velum_reviewed === 1 ? "reviewed" : "unknown"}${latest.velum_redacted === 1 ? `, redacted ${(() => { try { return JSON.parse(latest.velum_fields_redacted || "[]").join(", "); } catch { return ""; } })()}` : ""}`));
     for (const r of rs.slice(0, 10)) {
-      listCard.appendChild(el("div", { class: "list-row" },
+      const row = el("div", { class: "list-row" },
         el("div", {},
           el("strong", {}, r.filename || r.tailored_for || "(pasted resume)"),
           el("div", { class: "muted small" }, r.summary ? r.summary.slice(0, 180) : `${r.extracted_length || r.base_resume?.length || 0} chars parsed`)),
         el("div", { class: "meta" },
           el("span", { class: "tag" }, `#${(r.id || "").slice(0, 8)}`),
           el("span", { class: "tag ok" }, r.velum_reviewed === 1 ? "Velum reviewed" : "Velum unknown"),
-          el("span", {}, fmtTime(r.created_at)))));
+          el("span", {}, fmtTime(r.created_at))));
+      // Tailor button
+      const tailorBtn = el("button", { class: "btn-ghost small", style: "margin-top:.35rem;" }, "✂ Tailor for role…");
+      tailorBtn.addEventListener("click", () => openTailorPanel(r, listCard));
+      row.appendChild(tailorBtn);
+      listCard.appendChild(row);
     }
   }
   root.appendChild(listCard);
+
+  // ── Tailor panel (inline below resume list) ─────────────────────────
+  function openTailorPanel(resume, anchor) {
+    // Remove any existing tailor panel
+    const existing = document.getElementById("tailorPanel");
+    if (existing) existing.remove();
+
+    const panel = el("div", { class: "card", id: "tailorPanel", style: "margin-top:.8rem;" });
+    panel.appendChild(el("h3", {}, `Tailor: ${resume.filename || resume.tailored_for || "Resume #" + resume.id.slice(0, 8)}`));
+
+    const targetInput = el("input", { placeholder: "e.g. Senior SRE @ Acme Corp", style: "width:100%;margin-bottom:.5rem;" });
+    const instrInput = el("textarea", { placeholder: "Optional instructions: emphasize Kubernetes experience, downplay management roles, etc.", style: "width:100%;min-height:48px;margin-bottom:.5rem;" });
+    const tailorSubmit = el("button", { class: "btn-primary" }, "Tailor resume");
+    const statusDiv = el("div", { class: "muted small" });
+
+    // Edit area (hidden until tailoring is done)
+    const editArea = el("textarea", { style: "width:100%;min-height:300px;font-family:var(--mono);font-size:13px;display:none;margin-top:.5rem;" });
+    const saveRow = el("div", { class: "btn-row", style: "display:none;margin-top:.5rem;" });
+    const saveBtn = el("button", { class: "btn-primary" }, "Save tailored resume");
+    const resetBtn = el("button", { class: "btn-ghost" }, "Reset to original");
+    saveRow.append(saveBtn, resetBtn);
+
+    panel.append(targetInput, instrInput, tailorSubmit, statusDiv, editArea, saveRow);
+    anchor.after(panel);
+    targetInput.focus();
+
+    tailorSubmit.addEventListener("click", async () => {
+      const target = targetInput.value.trim();
+      if (!target) { toast("Enter a target role", "warn"); return; }
+      tailorSubmit.disabled = true;
+      statusDiv.textContent = "Tailoring… (this may take a moment)";
+      try {
+        const res = await api(`/toba/resumes/${resume.id}/tailor`, {
+          method: "POST",
+          body: { target_role: target, instructions: instrInput.value.trim() || undefined },
+        });
+        editArea.value = res.tailored;
+        editArea.style.display = "block";
+        saveRow.style.display = "flex";
+        const tokens = res.usage ? ` · tokens in=${res.usage.input_tokens ?? "?"} out=${res.usage.output_tokens ?? "?"}` : "";
+        statusDiv.textContent = `Tailored for "${target}"${tokens}. Edit below and save when ready.`;
+      } catch (err) {
+        statusDiv.textContent = `Error: ${err.message}`;
+        statusDiv.style.color = "var(--err)";
+      }
+      tailorSubmit.disabled = false;
+    });
+
+    saveBtn.addEventListener("click", async () => {
+      const tailoredText = editArea.value.trim();
+      if (!tailoredText) { toast("Nothing to save", "warn"); return; }
+      try {
+        await api(`/toba/resumes/${resume.id}`, {
+          method: "PATCH",
+          body: { base_resume: tailoredText, tailored_for: targetInput.value.trim() },
+        });
+        toast("Tailored resume saved", "ok");
+        panel.remove();
+        navigate("#profile"); // refresh
+      } catch (err) { toast(err.message, "err"); }
+    });
+
+    resetBtn.addEventListener("click", () => {
+      editArea.value = resume.base_resume;
+    });
+  }
 }
 function mkRow(k, v) {
   return el("div", { class: "stat" },
@@ -549,11 +641,11 @@ function mkRow(k, v) {
     el("div", { class: "stat-value" }, v == null || v === "" ? "—" : String(v)));
 }
 
-// ── Dux Agents ───────────────────────────────────────────────────────────
+// ── Peh Agents ───────────────────────────────────────────────────────────
 async function renderAgents(root) {
   let providers;
   const [agents, providerStatus] = await Promise.allSettled([
-    api("/toba/dux/agents"),
+    api("/toba/peh/agents"),
     api("/toba/provider"),
   ]);
   if (agents.status !== "fulfilled") throw new Error("Could not load agents");
@@ -561,7 +653,7 @@ async function renderAgents(root) {
   providers = providerStatus.status === "fulfilled" ? providerStatus.value.provider.available_providers || [] : [];
 
   root.innerHTML = "";
-  root.appendChild(el("h2", {}, "Dux Agents"));
+  root.appendChild(el("h2", {}, "Peh Agents"));
   root.appendChild(el("p", { class: "muted" },
     "Per-agent provider/model overrides. API keys are write-only — the server never returns them; you'll see only an ",
     el("code", {}, "api_key_set"), " boolean."));
@@ -606,7 +698,7 @@ function agentCard(a, providers) {
   ));
   card.appendChild(el("div", { class: "btn-row", style: "margin-top:.8rem;" },
     el("button", { class: "btn-primary", type: "submit" }, "Save"),
-    el("a", { class: "btn-ghost", href: `#dux` }, "Chat as " + a.id)));
+    el("a", { class: "btn-ghost", href: `#peh` }, "Chat as " + a.id)));
   card.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(card);
@@ -621,7 +713,7 @@ function agentCard(a, providers) {
     // Don't send empty api_key — that would wipe stored credentials.
     if (!patch.api_key) delete patch.api_key;
     try {
-      const res = await api(`/toba/dux/agents/${a.id}`, { method: "PATCH", body: patch });
+      const res = await api(`/toba/peh/agents/${a.id}`, { method: "PATCH", body: patch });
       toast(`Agent "${a.id}" saved`, "ok");
       // Update local card with sanitized response (drops api_key field)
       const refreshed = res.agent;
@@ -1054,11 +1146,11 @@ async function renderQueue(root) {
 
 // ── Receipts ─────────────────────────────────────────────────────────────
 async function renderReceipts(root) {
-  const ACTIONS = ["", "model_call", "dux_agent_chat", "velum_review", "job_scout_run",
+  const ACTIONS = ["", "model_call", "peh_agent_chat", "velum_review", "job_scout_run",
                    "application_persist", "application_update", "campaign_create", "campaign_close",
                    "outreach_generate", "outreach_approve", "outreach_reject",
                    "automation_create", "automation_approve", "automation_reject", "automation_execute",
-                   "onboarding_complete", "resume_ingest", "insight_generate", "dux_agent_update"];
+                   "onboarding_complete", "resume_ingest", "insight_generate", "peh_agent_update"];
   let active = "";
   const filter = el("div", { class: "row", style: "margin-bottom: 1rem;" });
   for (const a of ACTIONS) {
@@ -1085,7 +1177,7 @@ function receiptRow(r) {
   const kindClass = r.errors ? "err" : (!r.local_mode ? "cloud" : "ok");
   const summary = el("summary", {},
     el("span", { class: `tag ${kindClass}` }, r.action),
-    r.dux_agent_id ? el("span", { class: "tag" }, r.dux_agent_id) : null,
+    r.peh_agent_id ? el("span", { class: "tag" }, r.peh_agent_id) : null,
     r.provider ? el("span", { class: "tag" }, `${r.provider}/${r.model || "?"}`) : null,
     !r.local_mode ? el("span", { class: "tag cloud" }, "cloud") : null,
     r.velum_reviewed ? el("span", { class: `tag ${r.velum_redacted ? "warn" : "ok"}` }, r.velum_redacted ? "velum: redacted" : "velum") : null,

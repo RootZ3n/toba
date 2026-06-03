@@ -45,7 +45,7 @@
 - No receipts system in standalone. Legatus had its own, but Toba standalone had zero audit trail.
 
 ### G. Model/Provider Selection
-- No provider config. Dux chat returned 503 with no clarity on what provider would be needed.
+- No provider config. Peh chat returned 503 with no clarity on what provider would be needed.
 - No metadata about provider/model in any output.
 
 ### H. Bridge Behavior
@@ -216,7 +216,7 @@ curl http://127.0.0.1:18815/version
 - One-active-campaign enforcement: 2
 - Application CRUD: 1
 - Outreach stealth: 2
-- Dux chat 503: 1
+- Peh chat 503: 1
 - Resume upload: 2
 - Velum review/redaction: 5
 - Receipts: 5
@@ -233,7 +233,7 @@ Typecheck: Clean (0 errors)
 
 ## Remaining Deferred Work
 
-1. **Dux chat in standalone** — Returns 503. Needs CURSUS_PROVIDER to actually call an LLM (OpenRouter, Ollama, etc.). Provider integration is wired for config but actual LLM calls are not implemented in standalone. This is by design — Peh bridge handles it.
+1. **Peh chat in standalone** — Returns 503. Needs CURSUS_PROVIDER to actually call an LLM (OpenRouter, Ollama, etc.). Provider integration is wired for config but actual LLM calls are not implemented in standalone. This is by design — Peh bridge handles it.
 
 2. **Job Scout actual execution** — The `GET /toba/job-scout/context` endpoint provides campaign-aware queries, and `POST /toba/job-scout/ingest` persists results. The actual job search execution (RSS/Tavily/LLM) remains in Legatus agents. To make standalone Job Scout fully independent, an execution engine would need to be added.
 

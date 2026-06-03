@@ -21,7 +21,7 @@ Environment=NODE_ENV=production
 Environment=TOBA_PORT=18815
 Environment=TOBA_HOST=127.0.0.1
 Environment=TOBA_DB_PATH=/mnt/ai/cursus/state/cursus.db
-# Provider defaults: unconfigured. Set in .env to enable Dux chat.
+# Provider defaults: unconfigured. Set in .env to enable Peh chat.
 Environment=TOBA_PROVIDER=none
 Environment=TOBA_MODEL=none
 Environment=TOBA_LOCAL_ONLY=false

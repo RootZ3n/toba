@@ -354,7 +354,7 @@ tr:hover td { background: rgba(139, 92, 246, 0.04); }
 .tag.err   { color: var(--err);    border-color: rgba(239, 68, 68, .35);  background: rgba(239, 68, 68, .1); }
 .tag.cloud { color: var(--accent-2); border-color: rgba(34, 211, 238, .35); background: rgba(34, 211, 238, .08); }
 
-/* ─── Dux Chat ──────────────────────────────────────────────────── */
+/* ─── Peh Chat ──────────────────────────────────────────────────── */
 .chat-shell {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -396,6 +396,19 @@ tr:hover td { background: rgba(139, 92, 246, 0.04); }
 }
 .chat-form { display: flex; gap: .5rem; align-items: flex-end; }
 .chat-form textarea { min-height: 64px; }
+.chat-tokens {
+  display: flex; gap: .5rem; flex-wrap: wrap; align-items: center;
+  padding: .45rem .65rem; border-top: 1px solid var(--line);
+  background: var(--bg-2); font-size: 12px; color: var(--muted);
+  font-family: var(--mono);
+}
+.tok-chip {
+  padding: .15rem .45rem; border-radius: 4px;
+  background: var(--bg-surface); border: 1px solid var(--line);
+}
+.tok-cached { color: #4df5c8; border-color: #4df5c833; }
+.tok-total { color: var(--text); font-weight: 600; }
+.tok-msgs { margin-left: auto; }
 .chat-msg.assistant .markdown { font-size: 13.5px; line-height: 1.62; }
 .markdown p { margin: .45rem 0 .75rem; }
 .markdown h3, .markdown h4, .markdown h5, .markdown h6 {

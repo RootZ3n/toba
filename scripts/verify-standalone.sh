@@ -64,16 +64,16 @@ check "PATCH /toba/provider selects echo"  '[ "$(echo "$sel_json" | jq -r .provi
 check "echo provider is local"               '[ "$(echo "$sel_json" | jq -r .provider.local)" = "true" ]'
 
 echo ""
-echo "[5] Dux chat works standalone via echo provider"
-chat_json="$(curl -fsS -X POST "$TOBA_URL/toba/dux/chat" -H "content-type: application/json" -d '{"message":"verify-standalone"}')"
+echo "[5] Peh chat works standalone via echo provider"
+chat_json="$(curl -fsS -X POST "$TOBA_URL/toba/peh/chat" -H "content-type: application/json" -d '{"message":"verify-standalone"}')"
 export chat_json
-check "Dux chat returns ok=true"             '[ "$(echo "$chat_json" | jq -r .ok)" = "true" ]'
-check "Dux chat used echo provider"          '[ "$(echo "$chat_json" | jq -r .provider.provider)" = "echo" ]'
-check "Dux chat reply echoes input"          'echo "$chat_json" | jq -r .reply | grep -q "verify-standalone"'
+check "Peh chat returns ok=true"             '[ "$(echo "$chat_json" | jq -r .ok)" = "true" ]'
+check "Peh chat used echo provider"          '[ "$(echo "$chat_json" | jq -r .provider.provider)" = "echo" ]'
+check "Peh chat reply echoes input"          'echo "$chat_json" | jq -r .reply | grep -q "verify-standalone"'
 
 echo ""
 echo "[6] Velum runs BEFORE provider for sensitive data"
-sens_json="$(curl -fsS -X POST "$TOBA_URL/toba/dux/chat" -H "content-type: application/json" -d '{"message":"contact me at person@example.test"}')"
+sens_json="$(curl -fsS -X POST "$TOBA_URL/toba/peh/chat" -H "content-type: application/json" -d '{"message":"contact me at person@example.test"}')"
 export sens_json
 check "Velum redacted email field"           'echo "$sens_json" | jq -e ".velum.fields_redacted | contains([\"email\"])"'
 check "Provider never saw raw email"         '! echo "$sens_json" | jq -r .reply | grep -q "person@example.test"'

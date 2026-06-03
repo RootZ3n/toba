@@ -11,9 +11,9 @@
 # It exercises:
 #   - /health and /version are reachable without a token
 #   - /status reports network_exposure, auth_required, openrouter_configured,
-#     and dux_agents — and does not leak any secret
+#     and peh_agents — and does not leak any secret
 #   - /toba/provider does not leak API keys (api_key_set boolean only)
-#   - GET /toba/dux/agents lists the registry
+#   - GET /toba/peh/agents lists the registry
 #   - if a token is set, sensitive endpoints reject without auth and allow with auth
 
 set -uo pipefail
@@ -51,7 +51,7 @@ check "status returns ok=true"                '[ "$(echo "$status_json" | jq -r 
 check "status reports network_exposure"       '[ -n "$(echo "$status_json" | jq -r .network_exposure)" ]'
 check "status reports auth_required"          'echo "$status_json" | jq -e ".auth_required != null"'
 check "status includes openrouter_configured" 'echo "$status_json" | jq -e ".openrouter_configured != null"'
-check "status includes dux_agents.total"      '[ "$(echo "$status_json" | jq -r ".dux_agents.total")" -gt 0 ]'
+check "status includes peh_agents.total"      '[ "$(echo "$status_json" | jq -r ".peh_agents.total")" -gt 0 ]'
 
 echo ""
 echo "[3] No secret leakage"
@@ -66,10 +66,10 @@ check "no obvious API-key pattern in status/provider" \
   '! echo "$all_json" | grep -qE "(sk-or-[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{20,})"'
 
 echo ""
-echo "[4] Dux agent registry"
-agents_json="$(curl -fsS "${AUTH_HDR[@]}" "$TOBA_URL/toba/dux/agents")"
+echo "[4] Peh agent registry"
+agents_json="$(curl -fsS "${AUTH_HDR[@]}" "$TOBA_URL/toba/peh/agents")"
 export agents_json
-check "GET /toba/dux/agents ok=true"        '[ "$(echo "$agents_json" | jq -r .ok)" = "true" ]'
+check "GET /toba/peh/agents ok=true"        '[ "$(echo "$agents_json" | jq -r .ok)" = "true" ]'
 check "seeded agents present"                 'echo "$agents_json" | jq -e ".agents | map(.id) | contains([\"strategist\",\"resume-reviewer\",\"outreach-drafter\",\"job-scout-analyst\",\"interview-coach\"])"'
 check "no api_key field on any agent"         '! echo "$agents_json" | jq -e ".agents[] | has(\"api_key\")" >/dev/null 2>&1'
 

@@ -22,7 +22,7 @@
 | `toba_job_evaluations` | System | Generated evaluation reports. |
 | `toba_outreach` | System+User | Staged by system; approved/rejected by user. |
 | `toba_automation` | System | Task queue. User approves/rejects. |
-| `toba_dux_sessions` | System | Chat session logs. |
+| `toba_peh_sessions` | System | Chat session logs. |
 | `toba_receipts` | System | Immutable audit trail. Never deleted. |
 | `toba_meta` | System | Schema version tracking. |
 

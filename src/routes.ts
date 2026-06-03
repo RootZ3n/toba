@@ -10,7 +10,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { inflateRawSync, inflateSync } from "node:zlib";
-import type { TobaV1DB, TobaProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat, DuxAgent, DuxSession } from "./db.js";
+import type { TobaV1DB, TobaProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat, PehAgent, PehSession } from "./db.js";
 import { TobaV2DB, TOBA_SCHEMA_VERSION } from "./db.js";
 
 // ── Web SPA assets (loaded once at module init) ──────────────────────────
@@ -84,7 +84,7 @@ type ResumeUploadBody = {
   file_base64?: string;
 };
 
-type DuxContextFlags = {
+type PehContextFlags = {
   profile?: boolean;
   resume?: boolean;
   campaign?: boolean;
@@ -328,7 +328,7 @@ export function registerRoutes(
 
   server.get("/api", async (_req, reply) => {
     const providerStatus = getProviderStatus();
-    const agents = v2.listDuxAgents();
+    const agents = v2.listPehAgents();
     const agentList = agents.map(a =>
       `<li><code>${a.id}</code> ${a.provider ? `(${a.provider}/${a.model ?? "?"})` : "(default)"}</li>`
     ).join("");
@@ -356,17 +356,17 @@ export function registerRoutes(
   <div>Bind</div>           <div><code>${network.host}:${network.port}</code> · <code>${network.exposure}</code></div>
   <div>Provider</div>       <div><code>${providerStatus.provider}</code> / <code>${providerStatus.model}</code> ${providerStatus.local ? "(local)" : "(cloud)"} · ${providerStatus.configured ? "configured" : "<span class=\"warn\">not configured</span>"}</div>
   <div>Local-only</div>     <div>${providerStatus.local_only_mode ? "yes" : "no"}</div>
-  <div>Dux agents</div>     <div>${agents.length} seeded (${agents.filter(a => a.provider || a.model).length} with overrides)</div>
+  <div>Peh agents</div>     <div>${agents.length} seeded (${agents.filter(a => a.provider || a.model).length} with overrides)</div>
 </div>
 <p>JSON endpoints:</p>
 <a class="btn" href="/health">/health</a>
 <a class="btn" href="/version">/version</a>
 <a class="btn" href="/status">/status</a>
 <a class="btn" href="/toba/provider">/toba/provider</a>
-<a class="btn" href="/toba/dux/agents">/toba/dux/agents</a>
+<a class="btn" href="/toba/peh/agents">/toba/peh/agents</a>
 <a class="btn" href="/toba/dashboard">/toba/dashboard</a>
 <a class="btn" href="/toba/receipts">/toba/receipts</a>
-<h2>Dux agents</h2>
+<h2>Peh agents</h2>
 <ul class="routes">${agentList}</ul>
 <hr>
 <footer>UI: <a href="/">/</a> · Setup: <code>pnpm run toba:setup</code> · Verify: <code>./scripts/verify-standalone.sh</code></footer>
@@ -443,7 +443,7 @@ export function registerRoutes(
     const onboarding = v2.getOnboarding();
     const lastScoutReceipts = v2.listReceipts(1, "job_scout_run");
     const providerStatus = getProviderStatus();
-    const agents = v2.listDuxAgents();
+    const agents = v2.listPehAgents();
     const openrouterEnvKeySet = !!(process.env["TOBA_OPENROUTER_API_KEY"] ?? process.env["CURSUS_OPENROUTER_API_KEY"] ?? "");
     const globalOpenRouterConfigured = providerStatus.provider === "openrouter" && providerStatus.configured;
     const agentOpenRouterConfigured = agents.some(a => a.provider === "openrouter" && !!a.api_key && !!a.model);
@@ -466,8 +466,8 @@ export function registerRoutes(
       openrouter_configured: globalOpenRouterConfigured || agentOpenRouterConfigured || openrouterEnvKeySet,
       openrouter_source: globalOpenRouterConfigured ? "global" : agentOpenRouterConfigured ? "agent" : openrouterEnvKeySet ? "env" : null,
       openrouter_env_key_set: openrouterEnvKeySet,
-      // ── Dux agents summary ──
-      dux_agents: {
+      // ── Peh agents summary ──
+      peh_agents: {
         total: agents.length,
         enabled: agents.filter(a => a.enabled === 1).length,
         with_overrides: agents.filter(a => a.provider || a.model).length,
@@ -896,6 +896,64 @@ export function registerRoutes(
     });
   });
 
+  // Resume tailoring — uses the provider to tailor a resume for a specific role
+  server.post<{ Params: { id: string }; Body: { target_role: string; instructions?: string } }>(
+    "/toba/resumes/:id/tailor", async (req, reply) => {
+      const resume = v2.getResume(req.params.id);
+      if (!resume) return reply.status(404).send({ ok: false, error: "Resume not found" });
+      const { target_role, instructions } = req.body ?? {};
+      if (!target_role) return reply.status(400).send({ ok: false, error: "target_role required" });
+
+      const profile = v1.getProfile();
+      const profileContext = profile?.summary ? `Candidate summary: ${profile.summary}\n` : "";
+      const skillsContext = profile?.skills ? `Skills: ${profile.skills}\n` : "";
+
+      const tailorPrompt = [
+        `You are a resume tailoring expert. Tailor the following resume for the role: "${target_role}".`,
+        instructions ? `Additional instructions: ${instructions}` : "",
+        "Rewrite the resume to highlight relevant experience, use keywords from the target role, and strengthen weak bullets with STAR format where possible.",
+        "Do NOT invent experience, metrics, or qualifications the candidate doesn't have.",
+        "Return ONLY the tailored resume text. No commentary.",
+        "",
+        profileContext + skillsContext,
+        `--- ORIGINAL RESUME ---\n${resume.base_resume}`,
+      ].filter(Boolean).join("\n");
+
+      try {
+        const result = await providerChat({
+          messages: [{ role: "user", content: tailorPrompt }],
+          max_tokens: 4096,
+        });
+        return reply.send({
+          ok: true,
+          original: resume.base_resume,
+          tailored: result.content,
+          target_role,
+          usage: result.usage ?? null,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({ ok: false, error: `Tailoring failed: ${msg}` });
+      }
+    }
+  );
+
+  // Resume update — save edited resume text
+  server.patch<{ Params: { id: string }; Body: { base_resume?: string; tailored_for?: string; summary?: string } }>(
+    "/toba/resumes/:id", async (req, reply) => {
+      const updated = v2.updateResume(req.params.id, req.body ?? {});
+      if (!updated) return reply.status(404).send({ ok: false, error: "Resume not found" });
+      return reply.send({ ok: true, resume: updated });
+    }
+  );
+
+  // Resume get — single resume by ID
+  server.get("/toba/resumes/:id", async (req, reply) => {
+    const resume = v2.getResume((req.params as any).id);
+    if (!resume) return reply.status(404).send({ ok: false, error: "Resume not found" });
+    return reply.send({ ok: true, resume });
+  });
+
   // Outreach (stealth enforced)
   server.get("/toba/outreach", async (req, reply) => {
     const status = (req.query as Record<string, string>).status;
@@ -930,13 +988,13 @@ export function registerRoutes(
     return reply.send({ ok: true });
   });
 
-  // Dux sessions
-  server.get("/toba/dux/sessions", async (_req, reply) => {
-    return reply.send({ ok: true, sessions: v2.listDuxSessions() });
+  // Peh sessions
+  server.get("/toba/peh/sessions", async (_req, reply) => {
+    return reply.send({ ok: true, sessions: v2.listPehSessions() });
   });
 
-  server.post<{ Body: { session_type?: string; type?: string } }>("/toba/dux/sessions", async (req, reply) => {
-    return reply.send({ ok: true, session: v2.createDuxSession((req.body?.session_type ?? req.body?.type ?? "checkin") as any) });
+  server.post<{ Body: { session_type?: string; type?: string } }>("/toba/peh/sessions", async (req, reply) => {
+    return reply.send({ ok: true, session: v2.createPehSession((req.body?.session_type ?? req.body?.type ?? "checkin") as any) });
   });
 
   /**
@@ -944,7 +1002,7 @@ export function registerRoutes(
    * over the in-process default. Returns the config plus the agent's
    * additional constraints (cloud_allowed, local_only).
    */
-  function effectiveAgentConfig(agent: DuxAgent | null): {
+  function effectiveAgentConfig(agent: PehAgent | null): {
     cfg: ProviderConfig;
     agent_local_only: boolean;
     agent_cloud_allowed: boolean;
@@ -967,7 +1025,7 @@ export function registerRoutes(
     return { cfg, agent_local_only, agent_cloud_allowed, using_fallback: false };
   }
 
-  function buildDuxContext(flags: DuxContextFlags | undefined): {
+  function buildPehContext(flags: PehContextFlags | undefined): {
     prompt: string;
     meta: {
       profile_included: boolean;
@@ -1000,7 +1058,7 @@ export function registerRoutes(
     const addSection = (title: string, content: string) => {
       const raw = normalizeExtractedText(content);
       if (!raw) return;
-      const reviewed = TobaV2DB.velumReview(raw, `dux_context_${title.toLowerCase().replace(/\s+/g, "_")}`);
+      const reviewed = TobaV2DB.velumReview(raw, `peh_context_${title.toLowerCase().replace(/\s+/g, "_")}`);
       if (reviewed.redacted) {
         contextRedacted = true;
         for (const f of reviewed.fields_redacted) if (!redactedFields.includes(f)) redactedFields.push(f);
@@ -1089,7 +1147,7 @@ export function registerRoutes(
     ].join("\n"));
 
     return {
-      prompt: `Toba context for this Dux turn:\n\n${sections.join("\n\n")}`,
+      prompt: `Toba context for this Peh turn:\n\n${sections.join("\n\n")}`,
       meta: {
         profile_included: include.profile,
         resume_included: include.resume && !!latestResume,
@@ -1106,11 +1164,11 @@ export function registerRoutes(
   }
 
   /**
-   * Run a Dux chat turn. Single implementation used by both the legacy
-   * /toba/dux/chat (with optional body.agent_id) and the agent-scoped
-   * /toba/dux/agents/:agentId/chat endpoint.
+   * Run a Peh chat turn. Single implementation used by both the legacy
+   * /toba/peh/chat (with optional body.agent_id) and the agent-scoped
+   * /toba/peh/agents/:agentId/chat endpoint.
    */
-  async function runDuxChat(
+  async function runPehChat(
     body: {
       session_id?: string;
       message?: string;
@@ -1120,31 +1178,31 @@ export function registerRoutes(
       temperature?: number;
       velum?: boolean;
       agent_id?: string;
-      include_context?: DuxContextFlags;
+      include_context?: PehContextFlags;
     },
-    explicitAgent: DuxAgent | null,
+    explicitAgent: PehAgent | null,
   ): Promise<{ status: number; payload: Record<string, unknown> }> {
-    const agent = explicitAgent ?? (body.agent_id ? v2.getDuxAgent(body.agent_id) : null);
+    const agent = explicitAgent ?? (body.agent_id ? v2.getPehAgent(body.agent_id) : null);
     if (body.agent_id && !agent) {
-      return { status: 404, payload: { ok: false, error: `Dux agent not found: ${body.agent_id}` } };
+      return { status: 404, payload: { ok: false, error: `Peh agent not found: ${body.agent_id}` } };
     }
     if (agent && agent.enabled !== 1) {
-      return { status: 400, payload: { ok: false, error: `Dux agent "${agent.id}" is disabled` } };
+      return { status: 400, payload: { ok: false, error: `Peh agent "${agent.id}" is disabled` } };
     }
 
     // ── Session resolution: find existing or create new ────────────────────
-    let duxSession: DuxSession | null = null;
+    let pehSession: PehSession | null = null;
     if (body.session_id) {
-      duxSession = v2.getDuxSession(body.session_id);
+      pehSession = v2.getPehSession(body.session_id);
     }
-    if (!duxSession) {
+    if (!pehSession) {
       // Try the most recent checkin session to continue a conversation
-      const sessions = v2.listDuxSessions();
+      const sessions = v2.listPehSessions();
       const recent = sessions.find(s => s.session_type === "checkin");
       if (recent) {
-        duxSession = recent;
+        pehSession = recent;
       } else {
-        duxSession = v2.createDuxSession("checkin");
+        pehSession = v2.createPehSession("checkin");
       }
     }
 
@@ -1154,23 +1212,37 @@ export function registerRoutes(
       return { status: 400, payload: { ok: false, error: "message or messages required" } };
     }
 
-    // Velum: Dux conversations touch career/profile data by definition. Default ON.
+    // Velum: Peh conversations touch career/profile data by definition. Default ON.
     const velumOn = body.velum !== false;
     const messages: ChatMessage[] = [];
     const systemPrompt = body.system ?? agent?.system_prompt ?? null;
     if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
-    const duxContext = buildDuxContext(body.include_context);
-    messages.push({ role: "system", content: duxContext.prompt });
+    const pehContext = buildPehContext(body.include_context);
+    messages.push({ role: "system", content: pehContext.prompt });
 
     const fieldsRedacted: string[] = [];
-    for (const f of duxContext.meta.fields_redacted) if (!fieldsRedacted.includes(f)) fieldsRedacted.push(f);
-    let redacted = duxContext.meta.velum_redacted;
+    for (const f of pehContext.meta.fields_redacted) if (!fieldsRedacted.includes(f)) fieldsRedacted.push(f);
+    let redacted = pehContext.meta.velum_redacted;
+    // ── Load session history for context ───────────────────────────────
+    if (pehSession && !explicitMessages) {
+      try {
+        const history: Array<{ role: string; content: string }> = JSON.parse(pehSession.messages || "[]");
+        // Load all previous messages (user + assistant) as context
+        for (const m of history) {
+          if (m.role === "user" || m.role === "assistant") {
+            messages.push({ role: m.role as "user" | "assistant", content: m.content });
+          }
+        }
+      } catch { /* corrupted session history — start fresh */ }
+    }
+
+    // ── Current user message ───────────────────────────────────────────
     if (explicitMessages) {
       for (const m of explicitMessages) {
         if (m.role !== "user" && m.role !== "assistant" && m.role !== "system") continue;
         let content = String(m.content ?? "");
         if (velumOn && m.role === "user") {
-          const vr = TobaV2DB.velumReview(content, "dux_chat");
+          const vr = TobaV2DB.velumReview(content, "peh_chat");
           content = vr.output;
           if (vr.redacted) { redacted = true; for (const f of vr.fields_redacted) if (!fieldsRedacted.includes(f)) fieldsRedacted.push(f); }
         }
@@ -1179,7 +1251,7 @@ export function registerRoutes(
     } else {
       let content = userText;
       if (velumOn) {
-        const vr = TobaV2DB.velumReview(content, "dux_chat");
+        const vr = TobaV2DB.velumReview(content, "peh_chat");
         content = vr.output;
         if (vr.redacted) { redacted = true; fieldsRedacted.push(...vr.fields_redacted); }
       }
@@ -1191,8 +1263,8 @@ export function registerRoutes(
         action: "velum_review",
         velum_reviewed: true,
         velum_redacted: redacted,
-        dux_agent_id: agent?.id ?? null,
-        result_summary: `Dux ${agent?.id ?? "chat"} Velum review: ${fieldsRedacted.length} fields redacted [${fieldsRedacted.join(", ") || "none"}]`,
+        peh_agent_id: agent?.id ?? null,
+        result_summary: `Peh ${agent?.id ?? "chat"} Velum review: ${fieldsRedacted.length} fields redacted [${fieldsRedacted.join(", ") || "none"}]`,
       });
     }
 
@@ -1211,11 +1283,11 @@ export function registerRoutes(
         usingFallback = true;
         if (!providerIsLocal(cfg.provider)) {
           return { status: 403, payload: { ok: false, code: "agent_cloud_blocked",
-            error: `Dux agent "${agent.id}" has cloud_allowed=false and its fallback "${cfg.provider}" is also cloud. Configure a local fallback.` } };
+            error: `Peh agent "${agent.id}" has cloud_allowed=false and its fallback "${cfg.provider}" is also cloud. Configure a local fallback.` } };
         }
       } else {
         return { status: 403, payload: { ok: false, code: "agent_cloud_blocked",
-          error: `Dux agent "${agent?.id}" has cloud_allowed=false but the selected provider "${cfg.provider}" is cloud. Configure a local provider for this agent or set fallback_provider.` } };
+          error: `Peh agent "${agent?.id}" has cloud_allowed=false but the selected provider "${cfg.provider}" is cloud. Configure a local provider for this agent or set fallback_provider.` } };
       }
     }
 
@@ -1230,22 +1302,22 @@ export function registerRoutes(
 
       const result = await providerChat(chatReq, cfg);
       v2.createReceipt({
-        action: agent ? "dux_agent_chat" : "model_call",
+        action: agent ? "peh_agent_chat" : "model_call",
         provider: result.provider,
         model: result.model,
         local_mode: result.local,
         velum_reviewed: velumOn,
         velum_redacted: redacted,
-        dux_agent_id: agent?.id ?? null,
-        result_summary: `Dux ${agent ? agent.id : "chat"}: ${result.provider}/${result.model} (${result.content.length} chars${result.finish_reason ? `, ${result.finish_reason}` : ""})${usingFallback ? " [fallback]" : ""}`,
+        peh_agent_id: agent?.id ?? null,
+        result_summary: `Peh ${agent ? agent.id : "chat"}: ${result.provider}/${result.model} (${result.content.length} chars${result.finish_reason ? `, ${result.finish_reason}` : ""})${usingFallback ? " [fallback]" : ""}`,
       });
 
-      // ── Persist conversation to Dux session ─────────────────────────────
-      if (duxSession) {
+      // ── Persist conversation to Peh session ─────────────────────────────
+      if (pehSession) {
         if (userText.trim()) {
-          v2.appendDuxMessage(duxSession.id, "user", userText);
+          v2.appendPehMessage(pehSession.id, "user", userText);
         }
-        v2.appendDuxMessage(duxSession.id, "assistant", result.content);
+        v2.appendPehMessage(pehSession.id, "assistant", result.content);
       }
 
       return {
@@ -1253,11 +1325,11 @@ export function registerRoutes(
         payload: {
           ok: true,
           reply: result.content,
-          session_id: duxSession?.id ?? null,
+          session_id: pehSession?.id ?? null,
           agent: agent ? { id: agent.id, display_name: agent.display_name } : null,
           provider: { provider: result.provider, model: result.model, local: result.local, fallback_used: usingFallback },
           velum: velumOn ? { reviewed: true, redacted, fields_redacted: fieldsRedacted } : { reviewed: false },
-          context: duxContext.meta,
+          context: pehContext.meta,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.finish_reason ? { finish_reason: result.finish_reason } : {}),
         },
@@ -1268,14 +1340,14 @@ export function registerRoutes(
       const code = isProviderErr ? err.code : "provider_call_failed";
       const msg = err instanceof Error ? err.message : String(err);
       v2.createReceipt({
-        action: agent ? "dux_agent_chat" : "model_call",
+        action: agent ? "peh_agent_chat" : "model_call",
         provider: cfg.provider,
         model: cfg.model,
         local_mode: providerIsLocal(cfg.provider),
         velum_reviewed: velumOn,
         velum_redacted: redacted,
-        dux_agent_id: agent?.id ?? null,
-        result_summary: `Dux ${agent ? agent.id : "chat"} failed: ${code}`,
+        peh_agent_id: agent?.id ?? null,
+        result_summary: `Peh ${agent ? agent.id : "chat"} failed: ${code}`,
         errors: msg.slice(0, 500),
       });
       void usingFallback;
@@ -1287,7 +1359,7 @@ export function registerRoutes(
           code,
           agent: agent ? { id: agent.id, display_name: agent.display_name } : null,
           provider: { provider: cfg.provider, model: cfg.model, local: providerIsLocal(cfg.provider) },
-          context: duxContext.meta,
+          context: pehContext.meta,
           hint: cfg.provider === "none"
             ? "Configure a provider: set TOBA_PROVIDER and TOBA_MODEL, or POST /toba/provider with {provider, model}."
             : undefined,
@@ -1305,23 +1377,23 @@ export function registerRoutes(
     temperature?: number;
     velum?: boolean;
     agent_id?: string;
-    include_context?: DuxContextFlags;
-  } }>("/toba/dux/chat", async (req, reply) => {
-    const result = await runDuxChat(req.body ?? {}, null);
+    include_context?: PehContextFlags;
+  } }>("/toba/peh/chat", async (req, reply) => {
+    const result = await runPehChat(req.body ?? {}, null);
     return reply.status(result.status).send(result.payload);
   });
 
-  // ───── Dux agent registry ──────────────────────────────────────────────────
+  // ───── Peh agent registry ──────────────────────────────────────────────────
 
-  server.get("/toba/dux/agents", async (_req, reply) => {
-    const agents = v2.listDuxAgents().map(a => TobaV2DB.sanitizeDuxAgent(a));
+  server.get("/toba/peh/agents", async (_req, reply) => {
+    const agents = v2.listPehAgents().map(a => TobaV2DB.sanitizePehAgent(a));
     return reply.send({ ok: true, agents, default_provider: getProviderStatus() });
   });
 
-  server.get<{ Params: { id: string } }>("/toba/dux/agents/:id", async (req, reply) => {
-    const agent = v2.getDuxAgent(req.params.id);
-    if (!agent) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${req.params.id}` });
-    return reply.send({ ok: true, agent: TobaV2DB.sanitizeDuxAgent(agent), default_provider: getProviderStatus() });
+  server.get<{ Params: { id: string } }>("/toba/peh/agents/:id", async (req, reply) => {
+    const agent = v2.getPehAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ ok: false, error: `Peh agent not found: ${req.params.id}` });
+    return reply.send({ ok: true, agent: TobaV2DB.sanitizePehAgent(agent), default_provider: getProviderStatus() });
   });
 
   const patchAgent = async (
@@ -1330,8 +1402,8 @@ export function registerRoutes(
   ) => {
     const b = req.body ?? {};
     const id = req.params.id;
-    const existing = v2.getDuxAgent(id);
-    if (!existing) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${id}` });
+    const existing = v2.getPehAgent(id);
+    if (!existing) return reply.status(404).send({ ok: false, error: `Peh agent not found: ${id}` });
 
     // Validate provider if supplied.
     if (typeof b["provider"] === "string" && !PROVIDER_REGISTRY[(b["provider"] as string).toLowerCase()]) {
@@ -1357,7 +1429,7 @@ export function registerRoutes(
         error: `Global TOBA_LOCAL_ONLY=true blocks cloud provider "${nextProvider}" for agent "${id}".` });
     }
 
-    const patch: Partial<DuxAgent> = {};
+    const patch: Partial<PehAgent> = {};
     const passthrough = ["display_name", "role", "provider", "model", "base_url", "api_key",
       "temperature", "max_tokens", "system_prompt", "fallback_provider", "fallback_model"];
     for (const k of passthrough) {
@@ -1369,19 +1441,19 @@ export function registerRoutes(
         (patch as Record<string, unknown>)[k] = typeof v === "boolean" ? (v ? 1 : 0) : v === null ? null : Number(v) ? 1 : 0;
       }
     }
-    const updated = v2.updateDuxAgent(id, patch);
+    const updated = v2.updatePehAgent(id, patch);
     v2.createReceipt({
-      action: "dux_agent_update",
-      dux_agent_id: id,
+      action: "peh_agent_update",
+      peh_agent_id: id,
       provider: updated?.provider ?? null,
       model: updated?.model ?? null,
       local_mode: updated?.local_only === 1 || (updated?.provider ? PROVIDER_REGISTRY[updated.provider]?.local ?? false : true),
-      result_summary: `Dux agent ${id} updated: ${Object.keys(patch).join(", ") || "(no changes)"}`,
+      result_summary: `Peh agent ${id} updated: ${Object.keys(patch).join(", ") || "(no changes)"}`,
     });
-    return reply.send({ ok: true, agent: updated ? TobaV2DB.sanitizeDuxAgent(updated) : null });
+    return reply.send({ ok: true, agent: updated ? TobaV2DB.sanitizePehAgent(updated) : null });
   };
-  server.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/toba/dux/agents/:id", patchAgent as never);
-  server.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/toba/dux/agents/:id/provider", patchAgent as never);
+  server.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/toba/peh/agents/:id", patchAgent as never);
+  server.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/toba/peh/agents/:id/provider", patchAgent as never);
 
   server.post<{ Params: { id: string }; Body: {
     session_id?: string;
@@ -1391,11 +1463,11 @@ export function registerRoutes(
     max_tokens?: number;
     temperature?: number;
     velum?: boolean;
-    include_context?: DuxContextFlags;
-  } }>("/toba/dux/agents/:id/chat", async (req, reply) => {
-    const agent = v2.getDuxAgent(req.params.id);
-    if (!agent) return reply.status(404).send({ ok: false, error: `Dux agent not found: ${req.params.id}` });
-    const result = await runDuxChat(req.body ?? {}, agent);
+    include_context?: PehContextFlags;
+  } }>("/toba/peh/agents/:id/chat", async (req, reply) => {
+    const agent = v2.getPehAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ ok: false, error: `Peh agent not found: ${req.params.id}` });
+    const result = await runPehChat(req.body ?? {}, agent);
     return reply.status(result.status).send(result.payload);
   });
 
@@ -1520,7 +1592,7 @@ export function registerRoutes(
       return reply.send({
         ok: true,
         dry_run: true,
-        would_clear: ["profile", "onboarding", "resumes", "campaigns", "applications", "receipts", "automation", "dux sessions"],
+        would_clear: ["profile", "onboarding", "resumes", "campaigns", "applications", "receipts", "automation", "peh sessions"],
       });
     }
     const profile = v1.clearProfile();

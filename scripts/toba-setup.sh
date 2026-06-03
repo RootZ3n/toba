@@ -11,7 +11,7 @@
 #   2. pnpm test + typecheck + build — abort on failure
 #   3. Migration to /mnt/ai/cursus if service still runs from legacy path
 #   4. Provider wizard (ollama / openrouter / echo / skip), .env atomic write + chmod 600
-#   5. Dux agent wizard — assign provider/model per agent via local API
+#   5. Peh agent wizard — assign provider/model per agent via local API
 #   6. Optional Tailscale wizard — bind 0.0.0.0, generate auth token, REQUIRE_AUTH
 #   7. Verification bundle (verify-standalone + verify-tailscale-ready)
 #   8. Clean final summary
@@ -303,7 +303,7 @@ patch_agent() {
   local token="${TOBA_AUTH_TOKEN_RUNTIME:-}"
   local hdr=()
   [ -n "$token" ] && hdr=(-H "Authorization: Bearer $token")
-  curl -fsS -X PATCH "${BASE_URL}/toba/dux/agents/${id}" \
+  curl -fsS -X PATCH "${BASE_URL}/toba/peh/agents/${id}" \
     -H 'content-type: application/json' "${hdr[@]}" \
     -d "$body" >/dev/null
 }
@@ -317,7 +317,7 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
   warn "Non-interactive — leaving provider unchanged"
 else
   cat <<EOF
-Select an LLM provider for Dux chat:
+Select an LLM provider for Peh chat:
   1) ollama        — local Ollama (TOBA_LOCAL_ONLY=true)
   2) openrouter    — OpenRouter (default model: deepseek/deepseek-v4-pro)
   3) echo          — local debug echo (no real model)
@@ -363,7 +363,7 @@ EOF
       ok "Echo provider selected (debug only)"
       ;;
     4|skip|*)
-      info "Provider unchanged — Dux chat will return a friendly 503 until configured."
+      info "Provider unchanged — Peh chat will return a friendly 503 until configured."
       PROVIDER_CHOICE="skip"
       ;;
   esac
@@ -374,17 +374,17 @@ if [ "$PROVIDER_CHOICE" != "skip" ] && [ -n "$PROVIDER_CHOICE" ]; then
   restart_and_wait
 fi
 
-# ── Step 5: Dux agent wizard ────────────────────────────────────────────────
-banner "Dux agents"
+# ── Step 5: Peh agent wizard ────────────────────────────────────────────────
+banner "Peh agents"
 AGENTS_JSON=""
-if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/dux/agents" 2>/dev/null)"; then
+if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/peh/agents" 2>/dev/null)"; then
   if command -v jq >/dev/null 2>&1; then
     echo "$AGENTS_JSON" | jq -r '.agents[] | "  \(.id) — \(.role) (\(.provider // "default")/\(.model // "default"))"'
   else
     note "(install jq for a prettier listing)"
   fi
 else
-  warn "Could not reach ${BASE_URL}/toba/dux/agents (service may not be running)"
+  warn "Could not reach ${BASE_URL}/toba/peh/agents (service may not be running)"
 fi
 
 if [ "$NON_INTERACTIVE" != "1" ] && [ -n "$AGENTS_JSON" ]; then
@@ -408,10 +408,10 @@ if [ "$NON_INTERACTIVE" != "1" ] && [ -n "$AGENTS_JSON" ]; then
   fi
 fi
 
-# Sanity: no API-key leakage on /toba/dux/agents
-if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/dux/agents" 2>/dev/null)"; then
+# Sanity: no API-key leakage on /toba/peh/agents
+if AGENTS_JSON="$(curl -fsS --max-time 5 "${BASE_URL}/toba/peh/agents" 2>/dev/null)"; then
   if echo "$AGENTS_JSON" | grep -qE 'sk-or-[A-Za-z0-9_-]{8,}|"api_key":"sk-'; then
-    err "API key appears in /toba/dux/agents response — refusing to continue"
+    err "API key appears in /toba/peh/agents response — refusing to continue"
     exit 1
   fi
   ok "no API-key leak in agents endpoint"
@@ -492,12 +492,12 @@ EXPOSURE="$(echo "$SMOKE_STATUS" | { command -v jq >/dev/null && jq -r '.network
 AUTH_REQ="$(echo "$SMOKE_STATUS" | { command -v jq >/dev/null && jq -r '.auth_required // false' || echo "?"; } 2>/dev/null)"
 PROV="$(echo "$SMOKE_STATUS" | { command -v jq >/dev/null && jq -r '.provider // "?"' || echo "?"; } 2>/dev/null)"
 MOD="$(echo "$SMOKE_STATUS"  | { command -v jq >/dev/null && jq -r '.model // "?"' || echo "?"; } 2>/dev/null)"
-DUX_TOTAL="$(echo "$SMOKE_STATUS" | { command -v jq >/dev/null && jq -r '.dux_agents.total // 0' || echo "?"; } 2>/dev/null)"
-DUX_OVR="$(echo "$SMOKE_STATUS"   | { command -v jq >/dev/null && jq -r '.dux_agents.with_overrides // 0' || echo "?"; } 2>/dev/null)"
+PEH_TOTAL="$(echo "$SMOKE_STATUS" | { command -v jq >/dev/null && jq -r '.peh_agents.total // 0' || echo "?"; } 2>/dev/null)"
+PEH_OVR="$(echo "$SMOKE_STATUS"   | { command -v jq >/dev/null && jq -r '.peh_agents.with_overrides // 0' || echo "?"; } 2>/dev/null)"
 printf "  Exposure:       %s\n" "$EXPOSURE"
 printf "  Auth required:  %s\n" "$AUTH_REQ"
 printf "  Provider/model: %s / %s\n" "$PROV" "$MOD"
-printf "  Dux agents:     %s total · %s with overrides\n" "$DUX_TOTAL" "$DUX_OVR"
+printf "  Peh agents:     %s total · %s with overrides\n" "$PEH_TOTAL" "$PEH_OVR"
 printf "  .env:           %s (chmod 600, contains secrets)\n" "$ENV_FILE"
 [ "$VERIFY_OK" = "1" ] && ok "verifications passed" || warn "verifications had failures (see logs above)"
 
@@ -517,12 +517,12 @@ echo "Next steps:"
 case "${PROVIDER_CHOICE:-}" in
   2|openrouter)
     [ "$HAS_OPENROUTER_KEY" = "1" ] \
-      && echo "  • Try the strategist: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/dux/agents/strategist/chat -H 'content-type: application/json' -d '{\"message\":\"weekly plan\"}'" \
+      && echo "  • Try the strategist: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/peh/agents/strategist/chat -H 'content-type: application/json' -d '{\"message\":\"weekly plan\"}'" \
       || echo "  • Add your OpenRouter key:  edit ${ENV_FILE} → set TOBA_OPENROUTER_API_KEY=…  then  sudo systemctl restart ${SERVICE_NAME}"
     ;;
   1|ollama)
     echo "  • Make sure 'ollama serve' is running and 'ollama pull ${PROVIDER_MODEL:-llama3}' completed"
-    echo "  • Try: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/dux/chat -H 'content-type: application/json' -d '{\"message\":\"hello\"}'"
+    echo "  • Try: curl ${SMOKE_HDR[*]:-} -X POST ${BASE_URL}/toba/peh/chat -H 'content-type: application/json' -d '{\"message\":\"hello\"}'"
     ;;
   3|echo) echo "  • Echo provider is for debugging. Switch to ollama/openrouter when ready." ;;
   skip|*) echo "  • Configure a provider: rerun  pnpm run cursus:setup  (or ./scripts/toba-setup.sh)" ;;

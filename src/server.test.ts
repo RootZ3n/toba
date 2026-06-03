@@ -820,8 +820,8 @@ describe("Toba standalone", () => {
     expect(again.statusCode).toBe(400);
   });
 
-  // Dux
-  it("dux chat returns honest unconfigured error when no provider is set", async () => {
+  // Peh
+  it("peh chat returns honest unconfigured error when no provider is set", async () => {
     // Reset provider to default-from-env ("none" in test env) before this case.
     const { resetConfigFromEnv } = await import("./provider.js");
     delete process.env["CURSUS_PROVIDER"];
@@ -831,7 +831,7 @@ describe("Toba standalone", () => {
     resetConfigFromEnv();
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { session_id: "x", message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/peh/chat", payload: { session_id: "x", message: "hi" } });
     expect(res.statusCode).toBe(503);
     const body = res.json();
     expect(body.error.toLowerCase()).toContain("provider");
@@ -1414,20 +1414,20 @@ describe("Toba standalone", () => {
     resetConfigFromEnv();
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/peh/chat", payload: { message: "hi" } });
     expect(res.statusCode).toBe(503); // misconfigured-from-env path -> "provider_misconfigured"
     delete process.env["CURSUS_LOCAL_ONLY"];
     resetConfigFromEnv();
     applyConfigPatch({ provider: "none", model: "none", api_key: "" });
   });
 
-  it("dux chat with echo provider works standalone, writes Velum + model_call receipts", async () => {
+  it("peh chat with echo provider works standalone, writes Velum + model_call receipts", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "echo", model: "debug" });
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/toba/dux/chat",
+      method: "POST", url: "/toba/peh/chat",
       payload: { message: "my email is person@example.test — what should I focus on?" },
     });
     expect(res.statusCode).toBe(200);
@@ -1459,7 +1459,7 @@ describe("Toba standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/toba/dux/chat",
+      method: "POST", url: "/toba/peh/chat",
       payload: { message: "call me at 555-123-4567 or 4111 1111 1111 1111" },
     });
     expect(res.statusCode).toBe(200);
@@ -1470,13 +1470,13 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "none", model: "none" });
   });
 
-  it("dux chat receipt records errors when provider call fails", async () => {
+  it("peh chat receipt records errors when provider call fails", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     // Point ollama at an unreachable port so the call errors fast.
     applyConfigPatch({ provider: "ollama", model: "no-such-model", base_url: "http://127.0.0.1:1" });
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "POST", url: "/toba/dux/chat", payload: { message: "hi", velum: false } });
+    const res = await app.inject({ method: "POST", url: "/toba/peh/chat", payload: { message: "hi", velum: false } });
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
     expect(res.json().ok).toBe(false);
     const receipts = await app.inject({ method: "GET", url: "/toba/receipts?action=model_call" });
@@ -1486,7 +1486,7 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "none", model: "none", base_url: "" });
   });
 
-  it("Dux chat with include_resume=true includes useful redacted resume context", async () => {
+  it("Peh chat with include_resume=true includes useful redacted resume context", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "echo", model: "debug" });
     const { app } = create();
@@ -1504,7 +1504,7 @@ describe("Toba standalone", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: "/toba/dux/agents/strategist/chat",
+      url: "/toba/peh/agents/strategist/chat",
       payload: {
         message: "Review my resume.",
         include_context: { profile: false, resume: true, campaign: false, applications: false, receipts: false },
@@ -1522,7 +1522,7 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "none", model: "none" });
   });
 
-  it("Dux chat includes active campaign applications/jobs with useful fields", async () => {
+  it("Peh chat includes active campaign applications/jobs with useful fields", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "echo", model: "debug" });
     const { app } = create();
@@ -1545,7 +1545,7 @@ describe("Toba standalone", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: "/toba/dux/agents/strategist/chat",
+      url: "/toba/peh/agents/strategist/chat",
       payload: {
         message: "Review the jobs I added.",
         include_context: { profile: false, resume: false, campaign: true, applications: true, receipts: false },
@@ -1563,14 +1563,14 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "none", model: "none" });
   });
 
-  it("Dux response metadata reports included context", async () => {
+  it("Peh response metadata reports included context", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "echo", model: "debug" });
     const { app } = create();
     await app.ready();
     const res = await app.inject({
       method: "POST",
-      url: "/toba/dux/chat",
+      url: "/toba/peh/chat",
       payload: { message: "status", include_context: { profile: true, resume: true, campaign: true, applications: true, receipts: true } },
     });
     expect(res.statusCode).toBe(200);
@@ -1654,13 +1654,13 @@ describe("Toba standalone", () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // PHASE 6: Per-Dux-agent provider/model selection
+  // PHASE 6: Per-Peh-agent provider/model selection
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("GET /toba/dux/agents returns the seeded registry", async () => {
+  it("GET /toba/peh/agents returns the seeded registry", async () => {
     const { app } = create();
     await app.ready();
-    const res = await app.inject({ method: "GET", url: "/toba/dux/agents" });
+    const res = await app.inject({ method: "GET", url: "/toba/peh/agents" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(Array.isArray(body.agents)).toBe(true);
@@ -1678,11 +1678,11 @@ describe("Toba standalone", () => {
     expect(body.default_provider).toBeDefined();
   });
 
-  it("PATCH /toba/dux/agents/:id persists per-agent provider/model and never leaks api_key", async () => {
+  it("PATCH /toba/peh/agents/:id persists per-agent provider/model and never leaks api_key", async () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/toba/dux/agents/strategist",
+      method: "PATCH", url: "/toba/peh/agents/strategist",
       payload: {
         provider: "openrouter",
         model: "deepseek/deepseek-v4-pro",
@@ -1702,7 +1702,7 @@ describe("Toba standalone", () => {
     expect(JSON.stringify(body)).not.toContain("test-openrouter-strategist-secret");
 
     // Verify persistence via GET
-    const reread = await app.inject({ method: "GET", url: "/toba/dux/agents/strategist" });
+    const reread = await app.inject({ method: "GET", url: "/toba/peh/agents/strategist" });
     expect(reread.json().agent.provider).toBe("openrouter");
     expect(JSON.stringify(reread.json())).not.toContain("test-openrouter-strategist-secret");
   });
@@ -1712,11 +1712,11 @@ describe("Toba standalone", () => {
     applyConfigPatch({ provider: "echo", model: "global-default" });
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "PATCH", url: "/toba/dux/agents/strategist",      payload: { provider: "echo", model: "strategist-model" } });
-    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { provider: "echo", model: "reviewer-model"   } });
+    await app.inject({ method: "PATCH", url: "/toba/peh/agents/strategist",      payload: { provider: "echo", model: "strategist-model" } });
+    await app.inject({ method: "PATCH", url: "/toba/peh/agents/resume-reviewer", payload: { provider: "echo", model: "reviewer-model"   } });
 
-    const a = await app.inject({ method: "POST", url: "/toba/dux/agents/strategist/chat",      payload: { message: "weekly plan" } });
-    const b = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "tighten bullets"  } });
+    const a = await app.inject({ method: "POST", url: "/toba/peh/agents/strategist/chat",      payload: { message: "weekly plan" } });
+    const b = await app.inject({ method: "POST", url: "/toba/peh/agents/resume-reviewer/chat", payload: { message: "tighten bullets"  } });
     expect(a.statusCode).toBe(200);
     expect(b.statusCode).toBe(200);
     expect(a.json().provider.model).toBe("strategist-model");
@@ -1730,7 +1730,7 @@ describe("Toba standalone", () => {
     const { app } = create();
     await app.ready();
     // outreach-drafter has no override yet
-    const res = await app.inject({ method: "POST", url: "/toba/dux/agents/outreach-drafter/chat", payload: { message: "hi" } });
+    const res = await app.inject({ method: "POST", url: "/toba/peh/agents/outreach-drafter/chat", payload: { message: "hi" } });
     expect(res.statusCode).toBe(200);
     expect(res.json().provider.model).toBe("global-fallback");
     expect(res.json().agent.id).toBe("outreach-drafter");
@@ -1741,7 +1741,7 @@ describe("Toba standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/toba/dux/agents/interview-coach",
+      method: "PATCH", url: "/toba/peh/agents/interview-coach",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", local_only: true },
     });
     expect(res.statusCode).toBe(400);
@@ -1754,30 +1754,30 @@ describe("Toba standalone", () => {
     const { app } = create();
     await app.ready();
     // Block cloud for resume-reviewer with no fallback
-    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { cloud_allowed: false } });
-    const blocked = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "blocked" } });
+    await app.inject({ method: "PATCH", url: "/toba/peh/agents/resume-reviewer", payload: { cloud_allowed: false } });
+    const blocked = await app.inject({ method: "POST", url: "/toba/peh/agents/resume-reviewer/chat", payload: { message: "blocked" } });
     expect(blocked.statusCode).toBe(403);
     expect(blocked.json().code).toBe("agent_cloud_blocked");
 
     // Now give it a local fallback
-    await app.inject({ method: "PATCH", url: "/toba/dux/agents/resume-reviewer", payload: { fallback_provider: "echo", fallback_model: "local-stand-in" } });
-    const ok = await app.inject({ method: "POST", url: "/toba/dux/agents/resume-reviewer/chat", payload: { message: "via fallback" } });
+    await app.inject({ method: "PATCH", url: "/toba/peh/agents/resume-reviewer", payload: { fallback_provider: "echo", fallback_model: "local-stand-in" } });
+    const ok = await app.inject({ method: "POST", url: "/toba/peh/agents/resume-reviewer/chat", payload: { message: "via fallback" } });
     expect(ok.statusCode).toBe(200);
     expect(ok.json().provider.provider).toBe("echo");
     expect(ok.json().provider.fallback_used).toBe(true);
     applyConfigPatch({ provider: "none", model: "none", api_key: "", base_url: "" });
   });
 
-  it("receipts for agent chat carry dux_agent_id, provider, and model", async () => {
+  it("receipts for agent chat carry peh_agent_id, provider, and model", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "echo", model: "receipts-model" });
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "POST", url: "/toba/dux/agents/strategist/chat", payload: { message: "trace me" } });
-    const res = await app.inject({ method: "GET", url: "/toba/receipts?action=dux_agent_chat&limit=10" });
+    await app.inject({ method: "POST", url: "/toba/peh/agents/strategist/chat", payload: { message: "trace me" } });
+    const res = await app.inject({ method: "GET", url: "/toba/receipts?action=peh_agent_chat&limit=10" });
     const recs = res.json().receipts as Array<Record<string, unknown>>;
     expect(recs.length).toBeGreaterThan(0);
-    expect(recs[0]!.dux_agent_id).toBe("strategist");
+    expect(recs[0]!.peh_agent_id).toBe("strategist");
     expect(recs[0]!.provider).toBe("echo");
     expect(recs[0]!.model).toBe("receipts-model");
     applyConfigPatch({ provider: "none", model: "none" });
@@ -1789,7 +1789,7 @@ describe("Toba standalone", () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "POST", url: "/toba/dux/agents/outreach-drafter/chat",
+      method: "POST", url: "/toba/peh/agents/outreach-drafter/chat",
       payload: { message: "Draft an email mentioning person@example.test and 555-123-4567" },
     });
     expect(res.statusCode).toBe(200);
@@ -1873,11 +1873,11 @@ describe("Toba standalone", () => {
     applyConfigPatch({ local_only: false, provider: "none", model: "none" });
   });
 
-  it("Dux agent can select OpenRouter DeepSeek v4 Pro", async () => {
+  it("Peh agent can select OpenRouter DeepSeek v4 Pro", async () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({
-      method: "PATCH", url: "/toba/dux/agents/strategist",
+      method: "PATCH", url: "/toba/peh/agents/strategist",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-key" },
     });
     expect(res.statusCode).toBe(200);
@@ -1912,7 +1912,7 @@ describe("Toba standalone", () => {
     expect(wild.exposure).toBe("tailscale_reachable");
   });
 
-  it("/status surfaces network exposure + Dux agent count + OpenRouter posture", async () => {
+  it("/status surfaces network exposure + Peh agent count + OpenRouter posture", async () => {
     const { applyConfigPatch } = await import("./provider.js");
     applyConfigPatch({ provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-status-secret", base_url: "https://openrouter.ai/api/v1" });
     const { app } = create();
@@ -1921,8 +1921,8 @@ describe("Toba standalone", () => {
     const body = res.json();
     expect(body.network_exposure).toBeDefined();
     expect(body.host).toBeDefined();
-    expect(body.dux_agents.total).toBeGreaterThan(0);
-    expect(Array.isArray(body.dux_agents.agents)).toBe(true);
+    expect(body.peh_agents.total).toBeGreaterThan(0);
+    expect(Array.isArray(body.peh_agents.agents)).toBe(true);
     expect(body.openrouter_configured).toBe(true);
     expect(JSON.stringify(body)).not.toContain("test-openrouter-status-secret");
     applyConfigPatch({ provider: "none", model: "none", api_key: "" });
@@ -1943,7 +1943,7 @@ describe("Toba standalone", () => {
     expect(body).toContain("/assets/styles.css");
     expect(body).toContain("/assets/app.js");
     // Shell mounts the navigation for every required workspace
-    for (const hash of ["#dashboard", "#dux", "#profile", "#agents", "#campaigns", "#jobscout", "#apps", "#queue", "#receipts", "#settings"]) {
+    for (const hash of ["#dashboard", "#peh", "#profile", "#agents", "#campaigns", "#jobscout", "#apps", "#queue", "#receipts", "#settings"]) {
       expect(body).toContain(hash);
     }
     expect(body).toContain("Career Transformation Platform");
@@ -1957,13 +1957,13 @@ describe("Toba standalone", () => {
     expect(res.headers["content-type"]).toContain("text/javascript");
     const body = res.body;
     // App talks to the real endpoints
-    expect(body).toContain("/toba/dux/agents");
+    expect(body).toContain("/toba/peh/agents");
     expect(body).toContain("/toba/provider");
     expect(body).toContain("/toba/receipts");
     expect(body).toContain("/toba/job-scout/context");
     expect(body).toContain("/toba/automation");
-    // Dux chat must pass agent_id when an agent is selected
-    expect(body).toContain("/toba/dux/agents/${agentId}/chat");
+    // Peh chat must pass agent_id when an agent is selected
+    expect(body).toContain("/toba/peh/agents/${agentId}/chat");
     // V7 campaign editor surface
     expect(body).toContain("renderEffectivePanel");
     expect(body).toContain("sourceBadge");
@@ -1971,7 +1971,7 @@ describe("Toba standalone", () => {
     expect(body).toContain("preferred_locations");
     expect(body).toContain("unsaved changes");
     expect(body).toContain("Using fallback default"); // no-silent-inheritance banner
-    // Resume upload + Dux context controls
+    // Resume upload + Peh context controls
     expect(body).toContain("resume_file");
     expect(body).toContain("fileToBase64");
     expect(body).toContain("Include resume");
@@ -2002,7 +2002,7 @@ describe("Toba standalone", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/html");
     expect(res.body).toContain("API map");
-    expect(res.body).toContain("/toba/dux/agents");
+    expect(res.body).toContain("/toba/peh/agents");
   });
 
   it("GET / and /assets/* are served without auth", async () => {
@@ -2019,26 +2019,26 @@ describe("Toba standalone", () => {
     await app.ready();
     // Configure a per-agent API key via PATCH (typical case)
     await app.inject({
-      method: "PATCH", url: "/toba/dux/agents/strategist",
+      method: "PATCH", url: "/toba/peh/agents/strategist",
       payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "test-openrouter-leak-secret" },
     });
     // The SPA shell HTML must not embed any key (it doesn't fetch keys; the API doesn't return them).
     const shell = await app.inject({ method: "GET", url: "/" });
     expect(shell.body).not.toContain("test-openrouter-leak-secret");
     // The agents endpoint sanitizes — double-check
-    const agents = await app.inject({ method: "GET", url: "/toba/dux/agents" });
+    const agents = await app.inject({ method: "GET", url: "/toba/peh/agents" });
     expect(agents.body).not.toContain("test-openrouter-leak-secret");
     expect(agents.body).toContain("api_key_set");
   });
 
-  it("Receipt for dux_agent_update is written on PATCH", async () => {
+  it("Receipt for peh_agent_update is written on PATCH", async () => {
     const { app } = create();
     await app.ready();
-    await app.inject({ method: "PATCH", url: "/toba/dux/agents/job-scout-analyst", payload: { provider: "echo", model: "scout-debug" } });
-    const recs = await app.inject({ method: "GET", url: "/toba/receipts?action=dux_agent_update" });
+    await app.inject({ method: "PATCH", url: "/toba/peh/agents/job-scout-analyst", payload: { provider: "echo", model: "scout-debug" } });
+    const recs = await app.inject({ method: "GET", url: "/toba/receipts?action=peh_agent_update" });
     const r = recs.json().receipts;
     expect(r.length).toBeGreaterThan(0);
-    expect(r[0].dux_agent_id).toBe("job-scout-analyst");
+    expect(r[0].peh_agent_id).toBe("job-scout-analyst");
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2266,14 +2266,14 @@ describe("Toba standalone", () => {
 describe("server URL rewrite (B1 regression)", () => {
   it("passes canonical /toba/* paths through unchanged", () => {
     expect(rewriteRequestUrl("/toba/profile")).toBe("/toba/profile");
-    expect(rewriteRequestUrl("/toba/dux/agents")).toBe("/toba/dux/agents");
+    expect(rewriteRequestUrl("/toba/peh/agents")).toBe("/toba/peh/agents");
     expect(rewriteRequestUrl("/health")).toBe("/health");
     expect(rewriteRequestUrl(undefined)).toBe("/");
   });
 
   it("rewrites legacy /cursus/* paths onto /toba/*", () => {
     expect(rewriteRequestUrl("/cursus/profile")).toBe("/toba/profile");
-    expect(rewriteRequestUrl("/cursus/dux/agents")).toBe("/toba/dux/agents");
+    expect(rewriteRequestUrl("/cursus/peh/agents")).toBe("/toba/peh/agents");
   });
 
   it("never drops characters from a /toba/* path", () => {

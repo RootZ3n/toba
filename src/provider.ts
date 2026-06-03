@@ -28,7 +28,7 @@
  *
  * Per-call overrides:
  *   The `chat(req, overrides)` entry point accepts a partial config that wins over
- *   the in-process default. Per-agent Dux selection uses this to route specific
+ *   the in-process default. Per-agent Peh selection uses this to route specific
  *   agents to specific provider/model combinations.
  */
 import { request } from "node:http";

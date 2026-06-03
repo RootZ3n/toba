@@ -46,14 +46,14 @@ echo "Mode: $MODE"
 echo "Keep provider config: $([[ "$KEEP_PROVIDER_CONFIG" == 1 ]] && echo yes || echo no)"
 echo "Dry run: $([[ "$DRY_RUN" == 1 ]] && echo yes || echo no)"
 echo
-echo "Will clear: profile, onboarding, resumes, campaigns, applications, outreach, search lanes, evaluations, receipts, automation, Dux sessions, interview stories."
+echo "Will clear: profile, onboarding, resumes, campaigns, applications, outreach, search lanes, evaluations, receipts, automation, Peh sessions, interview stories."
 if [[ "$MODE" == "--all-data" ]]; then
   echo "Will also clear: products/catalog entries."
 fi
 if [[ "$KEEP_PROVIDER_CONFIG" != 1 ]]; then
   echo "Will also clear: per-agent provider/model/base URL/API key overrides."
 fi
-echo "Will preserve: schema, migrations, generic Dux agent definitions, .env files."
+echo "Will preserve: schema, migrations, generic Peh agent definitions, .env files."
 
 if [[ "$DRY_RUN" == 1 ]]; then
   node "$ROOT/scripts/reset-toba-db.mjs" --db "$DB_PATH" --mode "$MODE" --dry-run --keep-provider-config "$KEEP_PROVIDER_CONFIG"

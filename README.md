@@ -9,7 +9,7 @@ If Peh is stopped, Toba keeps working.
 | Field | Value |
 | --- | --- |
 | Version | 5.0.0 |
-| Schema | 6 (Dux agent registry) |
+| Schema | 6 (Peh agent registry) |
 | Port | 18815 |
 | DB (canonical) | `/mnt/ai/toba/state/toba.db` |
 | Service | `toba.service` (systemd) |
@@ -35,7 +35,7 @@ That's the whole thing. `toba:setup` is an idempotent wizard that:
 2. Runs `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`. Aborts on any failure (does **not** touch the service).
 3. Offers to migrate `toba.service` to `/mnt/ai/toba` if it's still on the legacy path. Backs up DB and unit file first.
 4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `/mnt/ai/toba/.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
-5. Lists Dux agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
+5. Lists Peh agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
 6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `CURSUS_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
 7. Runs `verify-standalone.sh` and (when applicable) `verify-tailscale-ready.sh`.
 8. Prints a clean summary with the live status, Tailscale URL, and exact next commands.
@@ -63,7 +63,7 @@ pnpm verify:tailscale              # ./scripts/verify-tailscale-ready.sh
 
 Public/default Toba starts blank. A fresh DB has an empty profile,
 onboarding incomplete, no active campaign, no applications, no resumes, no
-automation tasks, and no personal receipts. Built-in Dux agents are generic
+automation tasks, and no personal receipts. Built-in Peh agents are generic
 only.
 
 Before any public release or demo, run:
@@ -88,7 +88,7 @@ providers while removing user-owned profile/campaign/application/resume data.
 
 `http://localhost:18815/` returns the standalone Toba web UI. `/api` returns
 the programmatic endpoint map with links to `/health`, `/version`, `/status`,
-`/toba/provider`, `/toba/dux/agents`, `/toba/dashboard`, and
+`/toba/provider`, `/toba/peh/agents`, `/toba/dashboard`, and
 `/toba/receipts`.
 
 ## Configuration
@@ -121,7 +121,7 @@ All configuration is via environment variables. Set them in `/mnt/ai/toba/.env`
 | `CURSUS_LOCAL_ONLY` | `false` | When `true`, cloud providers are rejected at both selection and call time. |
 
 Local providers (no network, no API key):
-- `none` — Toba boots without a provider. Dux chat returns an actionable 503.
+- `none` — Toba boots without a provider. Peh chat returns an actionable 503.
 - `echo` — In-process debug echo. Useful for verification and tests.
 - `ollama` — Local Ollama daemon. Default base URL `http://127.0.0.1:11434`.
 
@@ -159,9 +159,9 @@ If the exact OpenRouter slug for DeepSeek v4 Pro differs from
 The API key is **never** echoed in any response. `GET /toba/provider` and
 `GET /status` only surface `api_key_set: true|false`.
 
-### Dux agents (per-agent provider/model)
+### Peh agents (per-agent provider/model)
 
-Toba seeds five built-in Dux personas on first boot:
+Toba seeds five built-in Peh personas on first boot:
 
 | Agent id            | Role |
 | --- | --- |
@@ -178,11 +178,11 @@ Endpoints:
 
 | Endpoint | Notes |
 | --- | --- |
-| `GET /toba/dux/agents` | List the registry. `api_key` is never returned — `api_key_set` boolean is. |
-| `GET /toba/dux/agents/:id` | One agent. |
-| `PATCH /toba/dux/agents/:id` | Update provider/model/base_url/api_key/temperature/max_tokens/system_prompt/local_only/cloud_allowed/fallback_provider/fallback_model/enabled. Rejects unknown providers and local-only contradictions. |
-| `POST /toba/dux/agents/:id/chat` | Chat as this specific agent. Velum runs first; receipts include `dux_agent_id`. |
-| `POST /toba/dux/chat` | Original endpoint. Accepts optional `agent_id` in body. |
+| `GET /toba/peh/agents` | List the registry. `api_key` is never returned — `api_key_set` boolean is. |
+| `GET /toba/peh/agents/:id` | One agent. |
+| `PATCH /toba/peh/agents/:id` | Update provider/model/base_url/api_key/temperature/max_tokens/system_prompt/local_only/cloud_allowed/fallback_provider/fallback_model/enabled. Rejects unknown providers and local-only contradictions. |
+| `POST /toba/peh/agents/:id/chat` | Chat as this specific agent. Velum runs first; receipts include `peh_agent_id`. |
+| `POST /toba/peh/chat` | Original endpoint. Accepts optional `agent_id` in body. |
 
 Example: route the strategist to OpenRouter DeepSeek v4 Pro, keep
 resume-reviewer on a local model, force outreach-drafter local-only:
@@ -190,15 +190,15 @@ resume-reviewer on a local model, force outreach-drafter local-only:
 ```bash
 TOK="..."  # CURSUS_AUTH_TOKEN if running over Tailscale; omit Authorization on loopback
 
-curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/strategist \
+curl -X PATCH http://127.0.0.1:18815/toba/peh/agents/strategist \
   -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
   -d '{"provider":"openrouter","model":"deepseek/deepseek-v4-pro","api_key":"OPENROUTER_API_KEY_HERE","base_url":"https://openrouter.ai/api/v1","temperature":0.4}'
 
-curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/resume-reviewer \
+curl -X PATCH http://127.0.0.1:18815/toba/peh/agents/resume-reviewer \
   -H 'content-type: application/json' \
   -d '{"provider":"ollama","model":"llama3","local_only":true}'
 
-curl -X PATCH http://127.0.0.1:18815/toba/dux/agents/outreach-drafter \
+curl -X PATCH http://127.0.0.1:18815/toba/peh/agents/outreach-drafter \
   -H 'content-type: application/json' \
   -d '{"cloud_allowed":false,"fallback_provider":"ollama","fallback_model":"llama3"}'
 ```
@@ -208,7 +208,7 @@ Per-agent guarantees:
 - `local_only=true` on an agent + cloud provider → 400 at PATCH time.
 - `cloud_allowed=false` + cloud provider at call time → 403, or fallback if configured.
 - Global `CURSUS_LOCAL_ONLY=true` blocks setting any cloud provider on any agent.
-- `dux_agent_chat` receipts record agent_id + provider + model + local_mode + velum review state.
+- `peh_agent_chat` receipts record agent_id + provider + model + local_mode + velum review state.
 
 ### Optional Peh bridge
 
@@ -227,7 +227,7 @@ Per-agent guarantees:
 | `GET /toba/provider` | Full provider status including available providers, `local_only_mode`, `api_key_set` (boolean only — no secret). |
 | `PATCH /toba/provider` | Runtime provider/model selection. Body: `{provider, model, base_url?, api_key?, local_only?}`. |
 | `POST /toba/provider` | Alias of PATCH. |
-| `POST /toba/dux/chat` | Standalone Dux chat through the native provider. Velum-on-by-default (`velum:false` to override). Writes `velum_review` + `model_call` receipts. |
+| `POST /toba/peh/chat` | Standalone Peh chat through the native provider. Velum-on-by-default (`velum:false` to override). Writes `velum_review` + `model_call` receipts. |
 | `GET /toba/job-scout/context` | Local context for an external job-search tool. `live_search_implemented: false` — Toba does not crawl boards itself. |
 | `POST /toba/job-scout/ingest` | Ingest jobs into the active campaign (deduped by fingerprint). Receipt includes native provider/model metadata. |
 | `POST /toba/velum/review` | Local PII redaction (SSN, email, phone, address, credit card). |
@@ -245,7 +245,7 @@ sudo systemctl restart toba.service
 ```
 
 The script exercises `/health`, `/status`, `/toba/provider`,
-`/toba/dux/chat`, `/toba/job-scout/context`, `/toba/velum/review`,
+`/toba/peh/chat`, `/toba/job-scout/context`, `/toba/velum/review`,
 and receipts — and asserts that Velum redacts sensitive data BEFORE the
 provider sees it. It exits non-zero on any failure.
 
@@ -269,7 +269,7 @@ curl -s localhost:18815/status         | jq '{mode, provider, model, local_only_
 curl -s localhost:18815/toba/provider| jq '.provider | {provider, model, local, local_only_mode, configured}'
 
 # 4) Chat (Velum-redacted before reaching the model)
-curl -s -X POST localhost:18815/toba/dux/chat \
+curl -s -X POST localhost:18815/toba/peh/chat \
   -H 'content-type: application/json' \
   -d '{"message":"What should I focus on this week?"}' | jq .
 ```
@@ -323,7 +323,7 @@ CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
 ### Security guarantees
 
 1. The bind-time guard refuses to start a non-loopback service without a token.
-2. `/toba/provider`, `/toba/dux/agents`, `/toba/receipts`, `/toba/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
+2. `/toba/provider`, `/toba/peh/agents`, `/toba/receipts`, `/toba/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
 3. API keys never appear in any GET — `api_key_set: true|false` only.
 4. Bearer comparison uses an exact match against `Bearer <token>` (no prefix tricks).
 5. CORS `*` is permitted by default for private-lab use; narrow `CURSUS_CORS_ORIGIN` if exposing beyond the tailnet.
@@ -360,7 +360,7 @@ The legacy DB file is left in place as backup.
 
 ## Troubleshooting
 
-**Dux chat returns 503 with code `provider_unconfigured`**
+**Peh chat returns 503 with code `provider_unconfigured`**
 Set `CURSUS_PROVIDER` and `CURSUS_MODEL` (and `CURSUS_PROVIDER_API_KEY` for
 cloud providers) in `/mnt/ai/toba/.env` and restart the service, OR
 `PATCH /toba/provider` at runtime.
@@ -382,7 +382,7 @@ or unset `CURSUS_LOCAL_ONLY`.
 
 ```bash
 pnpm test         # 86 tests covering health, schema, all CRUD,
-                  # provider registry, dux chat, Velum-before-provider,
+                  # provider registry, Peh chat, Velum-before-provider,
                   # local-only enforcement, no-secret-leakage, no-Peh-import,
                   # Job Scout standalone, receipts on provider calls.
 pnpm typecheck    # strict TypeScript

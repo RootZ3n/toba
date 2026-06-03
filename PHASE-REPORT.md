@@ -152,7 +152,7 @@ Rejected tasks cannot be executed. Only approved tasks can be executed. Every tr
 - **UI for analytics dashboard**: API returns full analytics with insights. Charts/cards need frontend implementation.
 - **UI for automation queue**: API supports full approve/reject/execute workflow. Inbox-style UI needs frontend work.
 - **Scheduled automation**: Cron-like scheduling field exists in the automation table. Actual scheduler (daemon/setInterval) is deferred — requires decision on whether standalone Toba should have its own scheduler or defer to Legatus.
-- **Dux chat in standalone**: Still returns 503. Needs CURSUS_PROVIDER to call an LLM.
+- **Peh chat in standalone**: Still returns 503. Needs CURSUS_PROVIDER to call an LLM.
 - **Scoring explanations**: Job Scout ingest accepts `match_reason` and stores it in notes. Structured scoring rationale (which fields matched, weighted scores) is deferred until LLM integration is available.
 - **Search provider abstraction**: Job Scout context endpoint provides query derivation. Actual search execution (RSS, Tavily, API calls) remains in Legatus agents.
 

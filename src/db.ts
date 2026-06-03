@@ -3,7 +3,7 @@
  * =====================
  * Self-contained V1 + V2 DB classes. No external service dependencies.
  * V1: profile, experience, certifications, projects, skills, products, export
- * V2: campaigns, applications, resumes, outreach, dux sessions, dashboard,
+ * V2: campaigns, applications, resumes, outreach, peh sessions, dashboard,
  *     onboarding, analytics, automation queue, job fingerprinting, receipts, velum
  */
 
@@ -32,7 +32,7 @@ export type CampaignPhase = "research" | "applying" | "interviewing" | "negotiat
 export type AppStatus = "found" | "qualified" | "applied" | "responded" | "interviewing" | "closed";
 export type OutreachType = "email" | "cover_letter" | "recruiter";
 export type OutreachStatus = "staged" | "approved" | "sent" | "replied";
-export type DuxSessionType = "interview" | "checkin" | "role_assessment" | "discovery";
+export type PehSessionType = "interview" | "checkin" | "role_assessment" | "discovery";
 
 export interface Campaign {
   id: string; name: string; target_role: string; phase: CampaignPhase;
@@ -97,8 +97,8 @@ export interface Outreach {
   created_at: string; sent_at: string | null; gmail_thread_id: string | null;
 }
 
-export interface DuxSession {
-  id: string; session_type: DuxSessionType; messages: string;
+export interface PehSession {
+  id: string; session_type: PehSessionType; messages: string;
   profile_version_generated: number | null; created_at: string;
 }
 
@@ -112,7 +112,7 @@ export interface DashboardStats {
   approvedOutreach: number;
   sentOutreach: number;
   repliedOutreach: number;
-  lastDuxSession: string | null;
+  lastPehSession: string | null;
   recentActivity: Array<{ type: string; detail: string; timestamp: string }>;
   recent_activity: Array<{ id: string; type: string; summary: string; timestamp: string }>;
   next_action: string;
@@ -126,7 +126,7 @@ export type ReceiptAction =
   | "onboarding_complete" | "resume_ingest"
   | "automation_create" | "automation_approve" | "automation_reject" | "automation_execute"
   | "insight_generate" | "job_scout_search"
-  | "dux_agent_update" | "dux_agent_chat";
+  | "peh_agent_update" | "peh_agent_chat";
 
 export interface Receipt {
   id: string;
@@ -141,14 +141,14 @@ export interface Receipt {
   result_summary: string;
   errors: string | null;
   warnings: string | null;
-  dux_agent_id: string | null;
+  peh_agent_id: string | null;
 }
 
-// ── Dux agent registry ──────────────────────────────────────────────────────
+// ── Peh agent registry ──────────────────────────────────────────────────────
 // Per-agent provider/model overrides. Null fields fall back to the global
 // Toba default provider config.
 
-export interface DuxAgent {
+export interface PehAgent {
   id: string;                  // kebab-case agent id, e.g. "strategist"
   display_name: string;
   role: string;                // human-readable role description
@@ -798,7 +798,7 @@ export class TobaV2DB {
         gmail_thread_id TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS toba_dux_sessions (
+      CREATE TABLE IF NOT EXISTS toba_peh_sessions (
         id                        TEXT PRIMARY KEY,
         session_type              TEXT NOT NULL CHECK (session_type IN ('interview','checkin','role_assessment','discovery')),
         messages                  TEXT NOT NULL DEFAULT '[]',
@@ -810,7 +810,7 @@ export class TobaV2DB {
       CREATE INDEX IF NOT EXISTS idx_apps_status ON toba_applications(status);
       CREATE INDEX IF NOT EXISTS idx_outreach_status ON toba_outreach(status);
       CREATE INDEX IF NOT EXISTS idx_outreach_app ON toba_outreach(application_id);
-      CREATE INDEX IF NOT EXISTS idx_dux_sessions_type ON toba_dux_sessions(session_type);
+      CREATE INDEX IF NOT EXISTS idx_peh_sessions_type ON toba_peh_sessions(session_type);
 
       CREATE TABLE IF NOT EXISTS toba_receipts (
         id              TEXT PRIMARY KEY,
@@ -953,9 +953,9 @@ export class TobaV2DB {
       try { this.db.exec(sql); } catch { /* already exists */ }
     }
 
-    // ── Schema V6: Dux agent registry + receipt.dux_agent_id ────────────────
+    // ── Schema V6: Peh agent registry + receipt.peh_agent_id ────────────────
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS toba_dux_agents (
+      CREATE TABLE IF NOT EXISTS toba_peh_agents (
         id                TEXT PRIMARY KEY,
         display_name      TEXT NOT NULL,
         role              TEXT NOT NULL,
@@ -974,15 +974,15 @@ export class TobaV2DB {
         created_at        TEXT NOT NULL,
         updated_at        TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_dux_agents_enabled ON toba_dux_agents(enabled);
+      CREATE INDEX IF NOT EXISTS idx_peh_agents_enabled ON toba_peh_agents(enabled);
     `);
-    try { this.db.exec("ALTER TABLE toba_receipts ADD COLUMN dux_agent_id TEXT"); } catch { /* already exists */ }
+    try { this.db.exec("ALTER TABLE toba_receipts ADD COLUMN peh_agent_id TEXT"); } catch { /* already exists */ }
 
     // Seed built-in agents on first init. UPSERT-safe — never overwrites
     // user-supplied provider/model overrides.
-    const seedAgents: Array<Pick<DuxAgent, "id" | "display_name" | "role" | "system_prompt">> = [
-      { id: "strategist",        display_name: "Dux Strategist",          role: "Main career strategist. Weekly planning, target-role decisions, narrative coaching.",
-        system_prompt: "You are Dux, the user's career change strategist. Be direct, evidence-based, and avoid corporate fluff. Career data may be Velum-redacted; treat redaction markers as expected." },
+    const seedAgents: Array<Pick<PehAgent, "id" | "display_name" | "role" | "system_prompt">> = [
+      { id: "strategist",        display_name: "Peh Strategist",          role: "Main career strategist. Weekly planning, target-role decisions, narrative coaching.",
+        system_prompt: "You are Peh, the user's career change strategist. Be direct, evidence-based, and avoid corporate fluff. Career data may be Velum-redacted; treat redaction markers as expected." },
       { id: "resume-reviewer",   display_name: "Resume Reviewer",         role: "Tailors resumes to specific roles; flags weak bullets; suggests STAR-format rewrites.",
         system_prompt: "You critique and tailor resumes. Be concrete: rewrite weak bullets in STAR form, flag claims that need quantification, never invent metrics." },
       { id: "outreach-drafter",  display_name: "Outreach Drafter",        role: "Drafts cold emails, recruiter replies, and cover letters in the user's voice.",
@@ -994,7 +994,7 @@ export class TobaV2DB {
     ];
     const now = new Date().toISOString();
     const insertAgent = this.db.prepare(`
-      INSERT OR IGNORE INTO toba_dux_agents (id, display_name, role, enabled, system_prompt, created_at, updated_at)
+      INSERT OR IGNORE INTO toba_peh_agents (id, display_name, role, enabled, system_prompt, created_at, updated_at)
       VALUES (?, ?, ?, 1, ?, ?, ?)
     `);
     for (const a of seedAgents) insertAgent.run(a.id, a.display_name, a.role, a.system_prompt ?? null, now, now);
@@ -1545,6 +1545,24 @@ export class TobaV2DB {
     return this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume;
   }
 
+  updateResume(id: string, patch: { base_resume?: string; tailored_for?: string; summary?: string }): Resume | null {
+    const existing = this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume | undefined;
+    if (!existing) return null;
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (patch.base_resume !== undefined) { fields.push("base_resume = ?"); values.push(patch.base_resume); }
+    if (patch.tailored_for !== undefined) { fields.push("tailored_for = ?"); values.push(patch.tailored_for); }
+    if (patch.summary !== undefined) { fields.push("summary = ?"); values.push(patch.summary); }
+    if (fields.length === 0) return existing;
+    values.push(id);
+    this.db.prepare(`UPDATE toba_resumes SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    return this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume;
+  }
+
+  getResume(id: string): Resume | null {
+    return this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume | null;
+  }
+
   // ── Outreach ────────────────────────────────────────────────────────────────
 
   listOutreach(status?: OutreachStatus): Outreach[] {
@@ -1585,21 +1603,21 @@ export class TobaV2DB {
     return this.db.prepare("DELETE FROM toba_outreach WHERE id = ? AND status = 'staged'").run(id).changes > 0;
   }
 
-  // ── Dux Agent Registry ─────────────────────────────────────────────────────
+  // ── Peh Agent Registry ─────────────────────────────────────────────────────
 
-  listDuxAgents(includeDisabled = true): DuxAgent[] {
+  listPehAgents(includeDisabled = true): PehAgent[] {
     const q = includeDisabled
-      ? "SELECT * FROM toba_dux_agents ORDER BY id"
-      : "SELECT * FROM toba_dux_agents WHERE enabled = 1 ORDER BY id";
-    return this.db.prepare(q).all() as DuxAgent[];
+      ? "SELECT * FROM toba_peh_agents ORDER BY id"
+      : "SELECT * FROM toba_peh_agents WHERE enabled = 1 ORDER BY id";
+    return this.db.prepare(q).all() as PehAgent[];
   }
 
-  getDuxAgent(id: string): DuxAgent | null {
-    return this.db.prepare("SELECT * FROM toba_dux_agents WHERE id = ?").get(id) as DuxAgent | null;
+  getPehAgent(id: string): PehAgent | null {
+    return this.db.prepare("SELECT * FROM toba_peh_agents WHERE id = ?").get(id) as PehAgent | null;
   }
 
-  updateDuxAgent(id: string, patch: Partial<Omit<DuxAgent, "id" | "created_at" | "updated_at">>): DuxAgent | null {
-    if (!this.getDuxAgent(id)) return null;
+  updatePehAgent(id: string, patch: Partial<Omit<PehAgent, "id" | "created_at" | "updated_at">>): PehAgent | null {
+    if (!this.getPehAgent(id)) return null;
     const allowed = [
       "display_name", "role", "enabled", "provider", "model", "base_url", "api_key",
       "local_only", "cloud_allowed", "temperature", "max_tokens", "system_prompt",
@@ -1614,46 +1632,46 @@ export class TobaV2DB {
       if (typeof v === "boolean") values.push(v ? 1 : 0);
       else values.push(v as unknown);
     }
-    if (fields.length === 0) return this.getDuxAgent(id);
+    if (fields.length === 0) return this.getPehAgent(id);
     fields.push("updated_at = ?");
     values.push(new Date().toISOString());
     values.push(id);
-    this.db.prepare(`UPDATE toba_dux_agents SET ${fields.join(", ")} WHERE id = ?`).run(...values);
-    return this.getDuxAgent(id);
+    this.db.prepare(`UPDATE toba_peh_agents SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    return this.getPehAgent(id);
   }
 
   /**
    * Sanitized projection of an agent: same fields but `api_key` is replaced
    * by `api_key_set` boolean. Use for API responses.
    */
-  static sanitizeDuxAgent(agent: DuxAgent): Omit<DuxAgent, "api_key"> & { api_key_set: boolean } {
+  static sanitizePehAgent(agent: PehAgent): Omit<PehAgent, "api_key"> & { api_key_set: boolean } {
     const { api_key, ...rest } = agent;
     return { ...rest, api_key_set: !!(api_key && api_key.length > 0) };
   }
 
-  // ── Dux Sessions ────────────────────────────────────────────────────────────
+  // ── Peh Sessions ────────────────────────────────────────────────────────────
 
-  listDuxSessions(): DuxSession[] {
-    return this.db.prepare("SELECT * FROM toba_dux_sessions ORDER BY created_at DESC").all() as DuxSession[];
+  listPehSessions(): PehSession[] {
+    return this.db.prepare("SELECT * FROM toba_peh_sessions ORDER BY created_at DESC").all() as PehSession[];
   }
 
-  getDuxSession(id: string): DuxSession | null {
-    return this.db.prepare("SELECT * FROM toba_dux_sessions WHERE id = ?").get(id) as DuxSession | null;
+  getPehSession(id: string): PehSession | null {
+    return this.db.prepare("SELECT * FROM toba_peh_sessions WHERE id = ?").get(id) as PehSession | null;
   }
 
-  createDuxSession(sessionType: DuxSessionType): DuxSession {
+  createPehSession(sessionType: PehSessionType): PehSession {
     const id = randomUUID();
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO toba_dux_sessions (id, session_type, messages, created_at) VALUES (?, ?, '[]', ?)").run(id, sessionType, now);
-    return this.getDuxSession(id)!;
+    this.db.prepare("INSERT INTO toba_peh_sessions (id, session_type, messages, created_at) VALUES (?, ?, '[]', ?)").run(id, sessionType, now);
+    return this.getPehSession(id)!;
   }
 
-  appendDuxMessage(sessionId: string, role: "user" | "assistant", content: string): void {
-    const session = this.getDuxSession(sessionId);
+  appendPehMessage(sessionId: string, role: "user" | "assistant", content: string): void {
+    const session = this.getPehSession(sessionId);
     if (!session) return;
     const messages = JSON.parse(session.messages) as Array<{ role: string; content: string; timestamp: string }>;
     messages.push({ role, content, timestamp: new Date().toISOString() });
-    this.db.prepare("UPDATE toba_dux_sessions SET messages = ? WHERE id = ?").run(JSON.stringify(messages), sessionId);
+    this.db.prepare("UPDATE toba_peh_sessions SET messages = ? WHERE id = ?").run(JSON.stringify(messages), sessionId);
   }
 
   // ── Dashboard ───────────────────────────────────────────────────────────────
@@ -1668,8 +1686,8 @@ export class TobaV2DB {
     const oc: Record<string, number> = {};
     for (const r of outreachCounts) oc[r.status] = r.cnt;
 
-    const duxSessions = this.listDuxSessions();
-    const lastDux = duxSessions.length > 0 ? duxSessions[0]!.created_at : null;
+    const pehSessions = this.listPehSessions();
+    const lastPeh = pehSessions.length > 0 ? pehSessions[0]!.created_at : null;
 
     const recentApps = this.db.prepare("SELECT 'application' as type, company || ' — ' || role as detail, created_at as timestamp FROM toba_applications ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
     const recentOutreach = this.db.prepare("SELECT 'outreach' as type, type || ': ' || subject as detail, created_at as timestamp FROM toba_outreach ORDER BY created_at DESC LIMIT 5").all() as Array<{ type: string; detail: string; timestamp: string }>;
@@ -1689,7 +1707,7 @@ export class TobaV2DB {
           : stats.pending_outreach > 0
             ? "Review staged outreach before anything sends."
             : "Review pipeline and decide the next apply/follow-up move.")
-      : "Create a campaign or ask Dux to help define the target role.";
+      : "Create a campaign or ask Peh to help define the target role.";
 
     return {
       activeCampaign,
@@ -1701,7 +1719,7 @@ export class TobaV2DB {
       approvedOutreach: oc["approved"] ?? 0,
       sentOutreach: oc["sent"] ?? 0,
       repliedOutreach: oc["replied"] ?? 0,
-      lastDuxSession: lastDux,
+      lastPehSession: lastPeh,
       recentActivity,
       recent_activity: recentActivity.map((item, index) => ({
         id: `${item.type}-${item.timestamp}-${index}`,
@@ -1726,12 +1744,12 @@ export class TobaV2DB {
     result_summary: string;
     errors?: string | null;
     warnings?: string | null;
-    dux_agent_id?: string | null;
+    peh_agent_id?: string | null;
   }): Receipt {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare(
-      `INSERT INTO toba_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings, dux_agent_id)
+      `INSERT INTO toba_receipts (id, action, timestamp, campaign_id, provider, model, local_mode, velum_reviewed, velum_redacted, result_summary, errors, warnings, peh_agent_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, data.action, now,
@@ -1744,20 +1762,20 @@ export class TobaV2DB {
       data.result_summary,
       data.errors ?? null,
       data.warnings ?? null,
-      data.dux_agent_id ?? null,
+      data.peh_agent_id ?? null,
     );
     return this.db.prepare("SELECT * FROM toba_receipts WHERE id = ?").get(id) as Receipt;
   }
 
-  listReceipts(limit = 50, action?: ReceiptAction, duxAgentId?: string): Receipt[] {
-    if (action && duxAgentId) {
-      return this.db.prepare("SELECT * FROM toba_receipts WHERE action = ? AND dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(action, duxAgentId, limit) as Receipt[];
+  listReceipts(limit = 50, action?: ReceiptAction, pehAgentId?: string): Receipt[] {
+    if (action && pehAgentId) {
+      return this.db.prepare("SELECT * FROM toba_receipts WHERE action = ? AND peh_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(action, pehAgentId, limit) as Receipt[];
     }
     if (action) {
       return this.db.prepare("SELECT * FROM toba_receipts WHERE action = ? ORDER BY timestamp DESC LIMIT ?").all(action, limit) as Receipt[];
     }
-    if (duxAgentId) {
-      return this.db.prepare("SELECT * FROM toba_receipts WHERE dux_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(duxAgentId, limit) as Receipt[];
+    if (pehAgentId) {
+      return this.db.prepare("SELECT * FROM toba_receipts WHERE peh_agent_id = ? ORDER BY timestamp DESC LIMIT ?").all(pehAgentId, limit) as Receipt[];
     }
     return this.db.prepare("SELECT * FROM toba_receipts ORDER BY timestamp DESC LIMIT ?").all(limit) as Receipt[];
   }
@@ -1789,18 +1807,18 @@ export class TobaV2DB {
     return this.db.prepare("DELETE FROM toba_automation").run().changes;
   }
 
-  clearDuxSessions(): number {
-    return this.db.prepare("DELETE FROM toba_dux_sessions").run().changes;
+  clearPehSessions(): number {
+    return this.db.prepare("DELETE FROM toba_peh_sessions").run().changes;
   }
 
   clearInterviewStories(): number {
     return this.db.prepare("DELETE FROM toba_interview_stories").run().changes;
   }
 
-  clearDuxProviderConfig(): number {
+  clearPehProviderConfig(): number {
     const now = new Date().toISOString();
     return this.db.prepare(`
-      UPDATE toba_dux_agents SET
+      UPDATE toba_peh_agents SET
         provider = NULL,
         model = NULL,
         base_url = NULL,
@@ -1821,11 +1839,11 @@ export class TobaV2DB {
     summary.campaigns_and_pipeline = this.clearCampaigns();
     summary.receipts = this.clearReceipts();
     summary.automation = this.clearAutomation();
-    summary.dux_sessions = this.clearDuxSessions();
+    summary.peh_sessions = this.clearPehSessions();
     summary.interview_stories = this.clearInterviewStories();
     this.clearOnboarding();
     summary.onboarding = 1;
-    if (!opts.keepProviderConfig) summary.dux_provider_config = this.clearDuxProviderConfig();
+    if (!opts.keepProviderConfig) summary.peh_provider_config = this.clearPehProviderConfig();
     return summary;
   }
 

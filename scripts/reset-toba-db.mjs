@@ -52,7 +52,7 @@ const BASE_TABLES = [
   "campaigns",
   "receipts",
   "automation",
-  "dux_sessions",
+  "peh_sessions",
   "interview_stories",
   "experience",
   "certifications",
@@ -97,8 +97,8 @@ const tx = db.transaction(() => {
         ["privacy_mode", "local-only"], ["updated_at", new Date().toISOString()],
       ], "WHERE id = 1");
     }
-    if (!keepProviderConfig && exists(`${prefix}dux_agents`)) {
-      updateExisting(`${prefix}dux_agents`, [
+    if (!keepProviderConfig && exists(`${prefix}peh_agents`)) {
+      updateExisting(`${prefix}peh_agents`, [
         ["provider", null], ["model", null], ["base_url", null], ["api_key", null],
         ["local_only", null], ["cloud_allowed", null], ["temperature", null],
         ["max_tokens", null], ["fallback_provider", null], ["fallback_model", null],
