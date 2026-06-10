@@ -69,5 +69,14 @@ cp "$DB_PATH" "$backup"
 [[ -f "$DB_PATH-shm" ]] && cp "$DB_PATH-shm" "$backup-shm"
 echo "Backup written: $backup"
 
+# Retention (audit H2): keep only the newest 5 backups; reap older ones along
+# with their SQLite sidecars so the backups/ directory cannot grow forever.
+KEEP_BACKUPS=5
+mapfile -t old_backups < <(ls -1t "$backup_dir"/toba-reset-*.db 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)))
+for old in "${old_backups[@]}"; do
+  rm -f "$old" "$old-wal" "$old-shm"
+  echo "Reaped old backup: $(basename "$old")"
+done
+
 node "$ROOT/scripts/reset-toba-db.mjs" --db "$DB_PATH" --mode "$MODE" --keep-provider-config "$KEEP_PROVIDER_CONFIG"
 echo "Reset complete. Toba is in first-run blank state."

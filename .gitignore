@@ -14,3 +14,4 @@ state/
 *.log
 .vitest-cache/
 coverage/
+*.tsbuildinfo

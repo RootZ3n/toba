@@ -24,20 +24,22 @@
 
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { existsSync } from "node:fs";
 import { TobaV1DB, TobaV2DB } from "./db.js";
 import { registerRoutes } from "./routes.js";
 import { loadNetworkConfig } from "./network.js";
 import { rewriteRequestUrl } from "./rewrite.js";
+import { buildLoggerOptions } from "./logger.js";
+import { resolveDbPath } from "./dbpath.js";
+import { reapOldBackups } from "./backups.js";
+import { gracefulShutdown } from "./shutdown.js";
+import { loadProviderConfig } from "./provider.js";
 
 // Env helper: TOBA_* preferred, CURSUS_* fallback
 const env = (toba: string, cursus: string, fallback?: string) =>
   process.env[toba] ?? process.env[cursus] ?? fallback;
 
-const CANONICAL_DB = "/var/lib/toba/toba.db";
-const LEGACY_DB = "/mnt/ai/peh-v2/state/toba.db";
-const DB_PATH = env("TOBA_DB_PATH", "CURSUS_DB_PATH") ??
-  (existsSync(CANONICAL_DB) || !existsSync(LEGACY_DB) ? CANONICAL_DB : LEGACY_DB);
+// One canonical default; no filesystem-probe fallback chain (audit H1).
+const DB_PATH = resolveDbPath();
 const CORS_ORIGIN = env("TOBA_CORS_ORIGIN", "CURSUS_CORS_ORIGIN", "*")!;
 
 async function main() {
@@ -51,12 +53,30 @@ async function main() {
   }
 
   const server = Fastify({
-    logger: { level: "info" },
+    // Tee logs to stdout AND state/server.log so a backgrounded process keeps a
+    // persistent operational record (audit C1).
+    logger: buildLoggerOptions(),
     // Backward compatibility: legacy /cursus/* paths are rewritten to /toba/*.
     rewriteUrl: (req) => rewriteRequestUrl(req.url),
   });
 
   await server.register(cors, { origin: CORS_ORIGIN });
+
+  server.log.info(`Using database: ${DB_PATH}`);
+
+  // Load persisted provider config (audit C3): a state/provider-config.json file
+  // overrides env defaults, so operator changes survive restarts.
+  const providerSource = loadProviderConfig();
+  server.log.info(`Provider config source: ${providerSource}`);
+
+  // Best-effort backup TTL sweep (audit H2): drop backups beyond the newest 5
+  // that are older than 30 days.
+  try {
+    const { removed } = reapOldBackups();
+    if (removed.length > 0) server.log.info(`Reaped ${removed.length} old backup(s)`);
+  } catch (err) {
+    server.log.warn(`Backup reaper failed: ${(err as Error).message}`);
+  }
 
   // Both V1 and V2 share the same SQLite file
   const v1 = new TobaV1DB(DB_PATH);
@@ -64,12 +84,14 @@ async function main() {
 
   registerRoutes(server, v1, v2, netCfg);
 
-  // Graceful shutdown
+  // Graceful shutdown with a bounded 5s timeout so a hung DB close can't wedge
+  // the process forever (audit H3).
   const shutdown = async (signal: string) => {
     server.log.info(`${signal} received — shutting down`);
-    await server.close();
-    v1.close();
-    v2.close();
+    await gracefulShutdown(
+      [() => server.close(), () => v1.close(), () => v2.close()],
+      { timeoutMs: 5000, onWarn: (m) => server.log.warn(m) },
+    );
     process.exit(0);
   };
 

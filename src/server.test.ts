@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, utimesSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { TobaV1DB, TobaV2DB, TOBA_SCHEMA_VERSION } from "./db.js";
 import { registerRoutes } from "./routes.js";
 import { rewriteRequestUrl } from "./rewrite.js";
+import { setProviderConfigPath } from "./provider.js";
 
 const SERVER_SOURCE = readFileSync(join(import.meta.dirname, "server.ts"), "utf-8");
 
@@ -15,6 +16,9 @@ function buildApp() {
   const dir = join(tmpdir(), `toba-test-${randomUUID()}`);
   mkdirSync(dir, { recursive: true });
   const dbPath = join(dir, "toba.db");
+  // Keep provider-config persistence (audit C3) inside the disposable test dir
+  // so route-level PATCH /toba/provider never writes into the repo's state/.
+  setProviderConfigPath(join(dir, "provider-config.json"));
   const v1 = new TobaV1DB(dbPath);
   const v2 = new TobaV2DB(dbPath);
   const app = Fastify();
@@ -2305,5 +2309,253 @@ describe("server URL rewrite (B1 regression)", () => {
       v2.close();
       rmSync(dir, { recursive: true });
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Operational audit fixes (C1, C3, H1, H2, H3)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("C1 — file log transport", () => {
+  it("buildLoggerOptions tees logs to BOTH stdout and a persistent file", async () => {
+    const { buildLoggerOptions } = await import("./logger.js");
+    const dir = join(tmpdir(), `toba-log-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const logFile = join(dir, "server.log");
+
+    const app = Fastify({ logger: buildLoggerOptions(logFile) });
+    app.get("/ping", async () => ({ ok: true }));
+    await app.ready();
+
+    const marker = `marker-${randomUUID()}`;
+    app.log.info(marker);
+    const res = await app.inject({ method: "GET", url: "/ping" });
+    expect(res.statusCode).toBe(200);
+
+    await app.close(); // flushes the pino transport worker
+    await new Promise((r) => setTimeout(r, 400)); // give the worker a beat to hit disk
+
+    const content = readFileSync(logFile, "utf8");
+    expect(content).toContain(marker);
+    expect(content).toContain("request completed");
+    rmSync(dir, { recursive: true });
+  });
+
+  it("server.ts wires the file-backed logger (no console-only config)", () => {
+    expect(SERVER_SOURCE).toContain("buildLoggerOptions()");
+    expect(SERVER_SOURCE).not.toContain('logger: { level: "info" }');
+  });
+
+  it("rotateLogIfNeeded shifts an oversized log to .1 and leaves a fresh path", async () => {
+    const { rotateLogIfNeeded } = await import("./logger.js");
+    const dir = join(tmpdir(), `toba-logrot-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const logFile = join(dir, "server.log");
+
+    // Below threshold -> no rotation.
+    writeFileSync(logFile, "x".repeat(50));
+    expect(rotateLogIfNeeded(logFile, 1000)).toBe(false);
+    expect(existsSync(`${logFile}.1`)).toBe(false);
+
+    // At/over threshold -> rotate to .1; live path is moved aside (pino recreates it).
+    writeFileSync(logFile, "y".repeat(2000));
+    expect(rotateLogIfNeeded(logFile, 1000)).toBe(true);
+    expect(readFileSync(`${logFile}.1`, "utf8")).toBe("y".repeat(2000));
+    expect(existsSync(logFile)).toBe(false);
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe("C3 — provider config persistence", () => {
+  const cleanups: Array<() => void> = [];
+  afterEach(() => {
+    for (const fn of cleanups) { try { fn(); } catch { /* ignore */ } }
+    cleanups.length = 0;
+  });
+
+  // Standalone app builder (the main suite's create() is private to its block).
+  // Persists provider config into a disposable temp dir, never the repo state/.
+  async function build() {
+    const provider = await import("./provider.js");
+    const dir = join(tmpdir(), `toba-c3-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    provider.setProviderConfigPath(join(dir, "provider-config.json"));
+    const v1 = new TobaV1DB(join(dir, "toba.db"));
+    const v2 = new TobaV2DB(join(dir, "toba.db"));
+    const app = Fastify();
+    registerRoutes(app, v1, v2);
+    cleanups.push(() => { app.close(); v1.close(); v2.close(); rmSync(dir, { recursive: true }); provider.resetConfigFromEnv(); });
+    return { app, provider };
+  }
+
+  it("PATCH persists provider config; a restart-equivalent reload keeps it", async () => {
+    const { app, provider } = await build();
+    await app.ready();
+
+    const res = await app.inject({
+      method: "PATCH", url: "/toba/provider",
+      payload: { provider: "openrouter", model: "deepseek/deepseek-v4-pro", api_key: "sk-test-c3" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().persisted).toBe(true);
+    expect(res.json().provider.provider).toBe("openrouter");
+
+    const cfgPath = provider.getProviderConfigPath();
+    expect(existsSync(cfgPath)).toBe(true);
+
+    // Simulate a restart: drop in-memory config, then load from disk.
+    provider.resetConfigFromEnv();
+    expect(provider.getConfig().provider).toBe("none");
+
+    const source = provider.loadProviderConfig(cfgPath);
+    expect(source).toBe("file");
+    expect(provider.getConfig().provider).toBe("openrouter");
+    expect(provider.getConfig().model).toBe("deepseek/deepseek-v4-pro");
+    expect(provider.getConfig().api_key).toBe("sk-test-c3");
+
+    provider.resetConfigFromEnv(); // restore for later tests
+  });
+
+  it("GET /toba/provider/status reports source, secret-free config, and persisted flag", async () => {
+    const { app, provider } = await build();
+    provider.resetConfigFromEnv();
+    await app.ready();
+
+    // Fresh temp config path -> not persisted, source env/default, no secret.
+    const before = (await app.inject({ method: "GET", url: "/toba/provider/status" })).json();
+    expect(["env", "default"]).toContain(before.source);
+    expect(before.persisted).toBe(false);
+    expect(before.config.api_key_set).toBe(false);
+    expect(before.config).not.toHaveProperty("api_key");
+
+    // After a PATCH: source becomes file, persisted true, key never leaked.
+    await app.inject({
+      method: "PATCH", url: "/toba/provider",
+      payload: { provider: "openai", model: "gpt-test", api_key: "super-secret-key" },
+    });
+    const after = (await app.inject({ method: "GET", url: "/toba/provider/status" })).json();
+    expect(after.source).toBe("file");
+    expect(after.persisted).toBe(true);
+    expect(after.config.provider).toBe("openai");
+    expect(after.config.api_key_set).toBe(true);
+    expect(JSON.stringify(after)).not.toContain("super-secret-key");
+
+    provider.resetConfigFromEnv();
+  });
+});
+
+describe("H1 — DB_PATH resolution", () => {
+  it("resolveDbPath falls back to the single canonical default", async () => {
+    const { resolveDbPath, DEFAULT_DB_PATH } = await import("./dbpath.js");
+    expect(DEFAULT_DB_PATH).toBe("/var/lib/toba/toba.db");
+    expect(resolveDbPath({})).toBe(DEFAULT_DB_PATH);
+  });
+
+  it("resolveDbPath honors TOBA_DB_PATH and CURSUS_DB_PATH (TOBA wins)", async () => {
+    const { resolveDbPath } = await import("./dbpath.js");
+    expect(resolveDbPath({ TOBA_DB_PATH: "/tmp/a.db" })).toBe("/tmp/a.db");
+    expect(resolveDbPath({ CURSUS_DB_PATH: "/tmp/b.db" })).toBe("/tmp/b.db");
+    expect(resolveDbPath({ TOBA_DB_PATH: "/tmp/a.db", CURSUS_DB_PATH: "/tmp/b.db" })).toBe("/tmp/a.db");
+  });
+
+  it("server.ts no longer uses existsSync fallback logic and logs the chosen DB", () => {
+    expect(SERVER_SOURCE).not.toContain("existsSync");
+    expect(SERVER_SOURCE).not.toContain("LEGACY_DB");
+    expect(SERVER_SOURCE).toContain("Using database:");
+  });
+});
+
+describe("H2 — backup reaper", () => {
+  const NOW = 1_000_000_000_000;
+  const DAY = 24 * 60 * 60 * 1000;
+  function mkBackup(dir: string, name: string, ageMs: number) {
+    const p = join(dir, name);
+    writeFileSync(p, "db");
+    const t = (NOW - ageMs) / 1000;
+    utimesSync(p, t, t);
+    return p;
+  }
+
+  it("keeps the newest 5 and reaps older backups beyond the TTL", async () => {
+    const { reapOldBackups } = await import("./backups.js");
+    const dir = join(tmpdir(), `toba-bk-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    for (let i = 1; i <= 7; i++) mkBackup(dir, `toba-reset-2026060${i}T000000Z.db`, i * DAY);
+    writeFileSync(join(dir, "keep-me.txt"), "x"); // non-backup must be ignored
+
+    const res = reapOldBackups(3, { dir, keep: 5, now: NOW });
+    // Newest 5 (ages 1..5d) always kept; remaining 6d+7d exceed the 3d TTL -> removed.
+    expect(res.removed.length).toBe(2);
+    expect(res.kept.length).toBe(5);
+    expect(existsSync(join(dir, "keep-me.txt"))).toBe(true);
+    expect(readdirSync(dir).filter((n) => n.startsWith("toba-reset-")).length).toBe(5);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("count-only prune (maxAgeDays=0) drops everything beyond keep", async () => {
+    const { reapOldBackups } = await import("./backups.js");
+    const dir = join(tmpdir(), `toba-bk2-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    for (let i = 1; i <= 7; i++) mkBackup(dir, `toba-reset-2026060${i}T000000Z.db`, i * 1000);
+
+    const res = reapOldBackups(0, { dir, keep: 5, now: NOW });
+    expect(res.removed.length).toBe(2);
+    expect(res.kept.length).toBe(5);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("removes SQLite -wal/-shm sidecars alongside a reaped backup", async () => {
+    const { reapOldBackups } = await import("./backups.js");
+    const dir = join(tmpdir(), `toba-bk3-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    mkBackup(dir, "toba-reset-old.db", 40 * DAY);
+    writeFileSync(join(dir, "toba-reset-old.db-wal"), "wal");
+    writeFileSync(join(dir, "toba-reset-old.db-shm"), "shm");
+
+    const res = reapOldBackups(30, { dir, keep: 0, now: NOW });
+    expect(res.removed).toContain("toba-reset-old.db");
+    expect(existsSync(join(dir, "toba-reset-old.db-wal"))).toBe(false);
+    expect(existsSync(join(dir, "toba-reset-old.db-shm"))).toBe(false);
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe("H3 — graceful shutdown timeout", () => {
+  it("resolves within the timeout even if a closer hangs forever, and warns", async () => {
+    const { gracefulShutdown } = await import("./shutdown.js");
+    let warned = "";
+    const start = Date.now();
+    const hang = () => new Promise(() => { /* never resolves */ });
+    await gracefulShutdown([hang], { timeoutMs: 200, onWarn: (m) => { warned = m; } });
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(warned).toContain("shutdown timeout");
+  });
+
+  it("completes fast closers without warning", async () => {
+    const { gracefulShutdown } = await import("./shutdown.js");
+    let warned = "";
+    let closed = 0;
+    await gracefulShutdown(
+      [() => { closed++; }, async () => { closed++; }],
+      { timeoutMs: 1000, onWarn: (m) => { warned = m; } },
+    );
+    expect(closed).toBe(2);
+    expect(warned).toBe("");
+  });
+
+  it("a slow DB connection cannot wedge shutdown past the 5s bound", async () => {
+    const { gracefulShutdown } = await import("./shutdown.js");
+    const start = Date.now();
+    const slowDb = () => new Promise<void>((r) => {
+      const t = setTimeout(r, 30_000); // would hang 30s
+      if (typeof (t as { unref?: () => void }).unref === "function") (t as { unref: () => void }).unref();
+    });
+    await gracefulShutdown([() => {}, slowDb], { timeoutMs: 5000 });
+    expect(Date.now() - start).toBeLessThan(6000);
+  }, 8000);
+
+  it("server.ts wires gracefulShutdown with a 5s timeout", () => {
+    expect(SERVER_SOURCE).toContain("gracefulShutdown");
+    expect(SERVER_SOURCE).toContain("timeoutMs: 5000");
   });
 });

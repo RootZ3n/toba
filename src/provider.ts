@@ -34,6 +34,8 @@
 import { request } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 export type ProviderId = "none" | "echo" | "ollama" | "openai" | "anthropic" | "openrouter" | "xiaomi" | string;
 
@@ -128,15 +130,126 @@ function defaultConfigFromEnv(): ProviderConfig {
   return { provider, model, base_url, api_key, local_only };
 }
 
+// ── Persistence (audit C3) ──────────────────────────────────────────────────
+// In-memory config is lost on restart, silently reverting operator changes made
+// via PATCH /toba/provider. We persist to a JSON file so runtime changes survive
+// restarts. Env vars are defaults; a persisted file (if present) overrides them.
+
+export type ConfigSource = "env" | "file" | "default";
+
+let providerConfigPath: string =
+  penv("TOBA_PROVIDER_CONFIG", "CURSUS_PROVIDER_CONFIG") ?? "state/provider-config.json";
+
+/** Override the persistence path (used by tests; production uses the default). */
+export function setProviderConfigPath(path: string): void {
+  providerConfigPath = path;
+}
+export function getProviderConfigPath(): string {
+  return providerConfigPath;
+}
+
+function envSource(): ConfigSource {
+  return (penv("TOBA_PROVIDER", "CURSUS_PROVIDER") ?? "") !== "" ? "env" : "default";
+}
+
 let currentConfig: ProviderConfig = defaultConfigFromEnv();
+let configSource: ConfigSource = envSource();
 
 export function getConfig(): ProviderConfig {
   return { ...currentConfig };
 }
 
+export function getConfigSource(): ConfigSource {
+  return configSource;
+}
+
 export function resetConfigFromEnv(): ProviderConfig {
   currentConfig = defaultConfigFromEnv();
+  configSource = envSource();
   return getConfig();
+}
+
+/**
+ * Startup loader: if a persisted config file exists it overrides env defaults
+ * (per-field, falling back to env for anything missing). Call once at startup.
+ * Returns the resolved source so the caller can log where config came from.
+ */
+export function loadProviderConfig(filePath: string = providerConfigPath): ConfigSource {
+  const envCfg = defaultConfigFromEnv();
+  if (existsSync(filePath)) {
+    try {
+      const raw = JSON.parse(readFileSync(filePath, "utf8")) as Partial<ProviderConfig>;
+      currentConfig = {
+        provider: (raw.provider ?? envCfg.provider).toLowerCase(),
+        model: raw.model ?? envCfg.model,
+        base_url: raw.base_url ?? envCfg.base_url,
+        api_key: raw.api_key ?? envCfg.api_key,
+        local_only: typeof raw.local_only === "boolean" ? raw.local_only : envCfg.local_only,
+      };
+      configSource = "file";
+      return configSource;
+    } catch {
+      // Corrupt file — fall back to env so the service still starts.
+    }
+  }
+  currentConfig = envCfg;
+  configSource = envSource();
+  return configSource;
+}
+
+/** Whether a persisted provider-config file currently exists. */
+export function isConfigPersisted(filePath: string = providerConfigPath): boolean {
+  return existsSync(filePath);
+}
+
+/**
+ * Write the in-memory config to the persistence file (mode 0600 — it can hold
+ * an API key, same sensitivity as .env). On success the active source becomes
+ * "file". Returns whether the write succeeded.
+ */
+export function persistConfig(filePath: string = providerConfigPath): boolean {
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    const data = JSON.stringify(
+      {
+        provider: currentConfig.provider,
+        model: currentConfig.model,
+        base_url: currentConfig.base_url,
+        api_key: currentConfig.api_key,
+        local_only: currentConfig.local_only,
+      },
+      null,
+      2,
+    );
+    writeFileSync(filePath, data, { mode: 0o600 });
+    configSource = "file";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Runtime status for GET /toba/provider/status — reports where the active
+ * config came from, a secret-free view of it, and whether it is persisted.
+ */
+export function getRuntimeStatus(): {
+  source: ConfigSource;
+  config: { provider: string; model: string; base_url: string | null; local_only: boolean; api_key_set: boolean };
+  persisted: boolean;
+} {
+  const cfg = currentConfig;
+  return {
+    source: configSource,
+    persisted: isConfigPersisted(),
+    config: {
+      provider: cfg.provider,
+      model: cfg.model,
+      base_url: cfg.base_url || null,
+      local_only: cfg.local_only,
+      api_key_set: cfg.api_key.length > 0,
+    },
+  };
 }
 
 export function isLocalProvider(providerId: string = currentConfig.provider): boolean {

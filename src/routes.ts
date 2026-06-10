@@ -30,6 +30,8 @@ import {
   chat as providerChat,
   getStatus as getProviderStatus,
   getConfig as getProviderConfig,
+  getRuntimeStatus as getProviderRuntimeStatus,
+  persistConfig as persistProviderConfig,
   applyConfigPatch,
   ProviderError,
   isLocalProvider as providerIsLocal,
@@ -1608,9 +1610,15 @@ export function registerRoutes(
     return reply.send({ ok: true, provider: getProviderStatus() });
   });
 
-  // Runtime selection — applied in-process, not persisted. To make persistent,
-  // set TOBA_PROVIDER/TOBA_MODEL/TOBA_PROVIDER_BASE_URL/TOBA_PROVIDER_API_KEY/TOBA_LOCAL_ONLY
-  // in the systemd unit (or .env consumed by it) and restart the service.
+  // Reports where the active provider config came from (env|file|default), a
+  // secret-free view of it, and whether it is persisted across restarts (C3).
+  server.get("/toba/provider/status", async (_req, reply) => {
+    return reply.send({ ok: true, ...getProviderRuntimeStatus() });
+  });
+
+  // Runtime selection — applied in-process AND persisted to state/provider-config.json
+  // (audit C3) so operator changes survive restarts. Env vars remain defaults that a
+  // persisted file overrides. The response carries `persisted` so callers know it stuck.
   const applyProvider = async (
     req: { body?: Record<string, unknown> | null },
     reply: { status: (n: number) => { send: (b: unknown) => unknown }; send: (b: unknown) => unknown },
@@ -1624,7 +1632,8 @@ export function registerRoutes(
     if (typeof b["local_only"] === "boolean") patch["local_only"] = b["local_only"];
     try {
       const next = applyConfigPatch(patch);
-      return reply.send({ ok: true, provider: next });
+      const persisted = persistProviderConfig();
+      return reply.send({ ok: true, provider: next, persisted });
     } catch (err) {
       if (err instanceof ProviderError) {
         return reply.status(err.statusCode).send({ ok: false, error: err.message, code: err.code });
