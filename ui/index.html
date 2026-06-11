@@ -56,7 +56,7 @@ const state={
 const PRODUCT_REGISTRY=[
   {id:'toba', displayName:'The Settlement', tagline:'Every career starts with a single step',
    status:'public', order:5, accent:'#d97706', accent2:'#7c3aed',
-   peh:'campfire', defaultScene:'council-fire',
+   peh:'campfire', defaultScene:'cave-entrance',
    mascotArt:'assets/peh-toba.png',
    blurb:'Toba transforms careers — from first steps to lasting legacies.'}
 ];
@@ -64,61 +64,68 @@ const PRODUCT_REGISTRY=[
 const PEH_DEFAULT_PRODUCT='toba';
 
 // ── SceneRegistry ──────────────────────────────────────────────────────
-// Six locations — stone age settlement areas for career transformation.
+// Seven locations — the actual Toba world map areas for career transformation.
 const SCENE_REGISTRY={
   toba:[
-    {id:'council-fire', title:'The Council Fire', purpose:'Hub / career overview', route:'/council-fire',
-     desc:'Where all paths begin. The fire burns, the elders speak, and the journey starts.', peh:'campfire',
-     pehSlot:{x:50, y:52, anchor:'center', variant:'elder'}, hotspots:[
-      {id:'cf-overview', label:'Career Overview',    x:50, y:44, workspace:'career-overview',  greeting:"Come, sit by the fire. Every great career starts right here — with a single decision."},
-      {id:'cf-trail',    label:'The Trail',          x:22, y:36, scene:'the-trail',            greeting:"The Trail stretches ahead — follow it to find your path."},
-      {id:'cf-forge',    label:'The Forge',          x:78, y:34, scene:'the-forge',            greeting:"The Forge — where raw potential becomes refined skill."},
-      {id:'cf-gathering',label:'The Gathering',      x:18, y:66, scene:'the-gathering',        greeting:"The Gathering — every connection is a bridge to somewhere new."},
-      {id:'cf-totem',    label:'The Totem',          x:82, y:62, scene:'the-totem',            greeting:"The Totem — every mark on it is a milestone earned, not given."},
-      {id:'cf-cave',     label:'The Cave',           x:36, y:80, scene:'the-cave',             greeting:"The Cave — quiet, focused. This is where we draw the plans ahead."},
-      {id:'cf-paths',    label:'Career Paths',       x:66, y:80, workspace:'career-paths',     greeting:"Every journey starts with one step. Let's find yours."}
+    {id:'cave-entrance', title:'Cave Entrance', purpose:'Hub / career overview', route:'/cave-entrance',
+     desc:'The main shelter. Every path radiates outward from here — step through and choose your direction.', peh:'campfire',
+     pehSlot:{x:50, y:45, anchor:'center', variant:'elder'}, hotspots:[
+      {id:'ce-overview',  label:'Career Overview',    x:50, y:38, workspace:'career-overview',  greeting:"Welcome to the Cave Entrance — the heart of the settlement. Every career starts with a single decision."},
+      {id:'ce-paintings', label:'Cave Paintings',     x:18, y:28, scene:'cave-paintings',       greeting:"The Cave Paintings — where the old stories live. Plans drawn on stone, visions of what's ahead."},
+      {id:'ce-hunting',   label:'Hunting Grounds',    x:82, y:28, scene:'hunting-grounds',      greeting:"The Hunting Grounds — training, tracking, testing yourself against the wild."},
+      {id:'ce-campfire',  label:'Campfire Circle',    x:50, y:55, scene:'campfire-circle',      greeting:"The Campfire Circle — where everyone gathers. Stories, bonds, connections forged in warmth."},
+      {id:'ce-gathering', label:'Gathering Place',    x:18, y:72, scene:'gathering-place',      greeting:"The Gathering Place — forage, craft, and build what you need for the journey."},
+      {id:'ce-firepit',   label:'Fire Pit',          x:50, y:75, scene:'fire-pit',             greeting:"The Fire Pit — where raw becomes cooked, rough becomes refined. Transformation by fire."},
+      {id:'ce-stonetable', label:'Stone Table',       x:82, y:72, scene:'stone-table',          greeting:"The Stone Table — where council gathers, decisions are made, and milestones are marked."}
+   ]},
+    {id:'cave-paintings', title:'Cave Paintings', purpose:'Vision & career planning', route:'/cave-paintings',
+     desc:'Stories painted on stone. The old ways mapped out — where you\'ve been, where you\'re going.', peh:'sage',
+    pehSlot:{x:50, y:55, anchor:'center', variant:'sage'}, hotspots:[
+      {id:'cp-planning', label:'Career Planning Workspace', x:44, y:50, workspace:'career-planning', greeting:"The Cave Paintings — quiet, focused. Draw your plans on the walls and shape the path ahead."},
+      {id:'cp-hub',      label:'Back to Cave Entrance',     x:82, y:78, scene:'cave-entrance',      greeting:"Back to the entrance — follow me!"}
     ]},
-    {id:'the-trail', title:'The Trail', purpose:'Career paths & progress', route:'/trail',
-     desc:'The path forward. Every step builds on the last, every milestone marks progress.', peh:'pathfinder',
-     pehSlot:{x:50, y:60, anchor:'center', variant:'pathfinder'}, hotspots:[
-      {id:'tr-paths', label:'Career Paths Workspace',      x:44, y:50, workspace:'career-paths',   greeting:"The Trail stretches ahead — but every step forward is a step closer to where you need to be."},
-      {id:'tr-hub',   label:'Back to Council Fire',        x:82, y:78, scene:'council-fire',      greeting:"Back to the fire — follow me!"}
+    {id:'hunting-grounds', title:'Hunting Grounds', purpose:'Career paths & training', route:'/hunting-grounds',
+     desc:'The wild frontier. Track, train, test yourself — every hunt sharpens your instincts.', peh:'pathfinder',
+    pehSlot:{x:50, y:55, anchor:'center', variant:'pathfinder'}, hotspots:[
+      {id:'hg-paths', label:'Career Paths Workspace',   x:44, y:50, workspace:'career-paths', greeting:"The Hunting Grounds — every expedition sharpens your instincts. Let's chart the course."},
+      {id:'hg-hub',   label:'Back to Cave Entrance',     x:82, y:78, scene:'cave-entrance',    greeting:"Back to the entrance — follow me!"}
     ]},
-    {id:'the-forge', title:'The Forge', purpose:'Skill building & refinement', route:'/forge',
-     desc:'Where raw potential becomes refined skill. Heat, pressure, and persistence.', peh:'smith',
-     pehSlot:{x:50, y:58, anchor:'center', variant:'smith'}, hotspots:[
-      {id:'fo-skills', label:'Skill Building Workspace',   x:44, y:50, workspace:'skill-building', greeting:"The Forge — where we hammer raw potential into something sharp. Let's get to work."},
-      {id:'fo-hub',    label:'Back to Council Fire',       x:82, y:78, scene:'council-fire',      greeting:"Back to the fire — follow me!"}
+    {id:'campfire-circle', title:'Campfire Circle', purpose:'Social hub & networking', route:'/campfire-circle',
+     desc:'The center of everything. Stories told, bonds forged, connections that last a lifetime.', peh:'trader',
+     pehSlot:{x:50, y:50, anchor:'center', variant:'trader'}, hotspots:[
+      {id:'cc-network', label:'Connections Workspace',   x:44, y:46, workspace:'connections',   greeting:"The Campfire Circle — every connection you make here warms the journey ahead."},
+      {id:'cc-hub',     label:'Back to Cave Entrance',   x:82, y:78, scene:'cave-entrance',    greeting:"Back to the entrance — follow me!"}
     ]},
-    {id:'the-gathering', title:'The Gathering', purpose:'Networking & connections', route:'/gathering',
-     desc:'Where paths cross. Connections made, alliances formed, networks built.', peh:'trader',
-     pehSlot:{x:48, y:58, anchor:'center', variant:'trader'}, hotspots:[
-      {id:'ga-network', label:'Networking Workspace',       x:44, y:50, workspace:'connections',   greeting:"The Gathering — every connection you make here is a bridge to somewhere new."},
-      {id:'ga-hub',     label:'Back to Council Fire',       x:82, y:78, scene:'council-fire',      greeting:"Back to the fire — follow me!"}
+    {id:'gathering-place', title:'Gathering Place', purpose:'Foraging, crafts & skill building', route:'/gathering-place',
+     desc:'Where the tribe gathers what it needs. Foraging, crafting, building from the earth.', peh:'leaf',
+     pehSlot:{x:50, y:55, anchor:'center', variant:'leaf'}, hotspots:[
+      {id:'gp-skills', label:'Skill Building Workspace', x:44, y:50, workspace:'skill-building', greeting:"The Gathering Place — collect, craft, and refine. Every skill you gather carries you further."},
+      {id:'gp-hub',     label:'Back to Cave Entrance',   x:82, y:78, scene:'cave-entrance',     greeting:"Back to the entrance — follow me!"}
     ]},
-    {id:'the-totem', title:'The Totem', purpose:'Achievements & milestones', route:'/totem',
-     desc:'Every achievement carved in stone. Milestones that don\'t fade.', peh:'carver',
-     pehSlot:{x:52, y:58, anchor:'center', variant:'carver'}, hotspots:[
-      {id:'to-milestones', label:'Achievements Workspace',  x:44, y:50, workspace:'milestones',    greeting:"The Totem stands tall — every mark on it is a milestone earned, not given."},
-      {id:'to-hub',        label:'Back to Council Fire',    x:82, y:78, scene:'council-fire',      greeting:"Back to the fire — follow me!"}
+    {id:'fire-pit', title:'Fire Pit', purpose:'Processing & delivery', route:'/fire-pit',
+     desc:'The heat of the fire transforms everything. Raw becomes refined, rough becomes ready.', peh:'smith',
+     pehSlot:{x:50, y:50, anchor:'center', variant:'smith'}, hotspots:[
+      {id:'fp-delivery', label:'Fire Processing Workspace', x:44, y:46, workspace:'fire-processing', greeting:"The Fire Pit — where we cook what we've gathered into something that sustains. Let's process."},
+      {id:'fp-hub',      label:'Back to Cave Entrance',     x:82, y:78, scene:'cave-entrance',     greeting:"Back to the entrance — follow me!"}
     ]},
-    {id:'the-cave', title:'The Cave', purpose:'Planning & strategy', route:'/cave',
-     desc:'Quiet reflection. Where plans are drawn on stone walls and strategies take shape.', peh:'sage',
-     pehSlot:{x:50, y:60, anchor:'center', variant:'sage'}, hotspots:[
-      {id:'ca-planning', label:'Planning Workspace',         x:44, y:50, workspace:'career-planning', greeting:"The Cave — quiet, focused. This is where we draw the plans that shape everything ahead."},
-      {id:'ca-hub',      label:'Back to Council Fire',       x:82, y:78, scene:'council-fire',       greeting:"Back to the fire — follow me!"}
+    {id:'stone-table', title:'Stone Table', purpose:'Ceremonial council & milestones', route:'/stone-table',
+     desc:'The great stone table. Decisions are made here, milestones carved, legacies remembered.', peh:'carver',
+     pehSlot:{x:50, y:55, anchor:'center', variant:'carver'}, hotspots:[
+      {id:'st-milestones', label:'Milestones Workspace',  x:44, y:50, workspace:'milestones',    greeting:"The Stone Table — every mark carved here is a milestone earned, not given."},
+      {id:'st-hub',        label:'Back to Cave Entrance',  x:82, y:78, scene:'cave-entrance',    greeting:"Back to the entrance — follow me!"}
     ]}
-  ]
+ ]
 };
 
 // ── WorkspaceManager: definitions ──────────────────────────────────────
 const WORKSPACE_REGISTRY={
-  'career-overview':  {product:'toba', title:'Career Overview', kind:'deck', route:'/council-fire', dock:'fullscreen', peh:'campfire'},
-  'career-paths':     {product:'toba', title:'Career Paths', kind:'placeholder', route:'/trail', dock:'right', peh:'pathfinder', relatedTab:'paths', blurb:'Career paths workspace coming soon — explore trajectories, map transitions, and chart your course.'},
-  'skill-building':   {product:'toba', title:'Skill Building', kind:'placeholder', route:'/forge', dock:'right', peh:'smith', relatedTab:'skills', blurb:'Skill building workspace coming soon — identify gaps, track practice, and forge new capabilities.'},
-  'connections':      {product:'toba', title:'Connections', kind:'placeholder', route:'/gathering', dock:'right', peh:'trader', relatedTab:'network', blurb:'Networking workspace coming soon — build alliances, strengthen bonds, and expand your reach.'},
-  'milestones':       {product:'toba', title:'Milestones', kind:'placeholder', route:'/totem', dock:'right', peh:'carver', relatedTab:'milestones', blurb:'Milestones workspace coming soon — achievements carved in stone that don\'t fade.'},
-  'career-planning':  {product:'toba', title:'Career Planning', kind:'placeholder', route:'/cave', dock:'right', peh:'sage', relatedTab:'overview', blurb:'Planning workspace coming soon — strategic reflection, goal-setting, and long-term vision.'}
+  'career-overview':   {product:'toba', title:'Career Overview', kind:'deck', route:'/cave-entrance', dock:'fullscreen', peh:'campfire'},
+  'career-paths':      {product:'toba', title:'Career Paths', kind:'placeholder', route:'/hunting-grounds', dock:'right', peh:'pathfinder', relatedTab:'paths', blurb:'Career paths workspace coming soon — explore trajectories, map transitions, and chart your course.'},
+  'skill-building':    {product:'toba', title:'Skill Building', kind:'placeholder', route:'/gathering-place', dock:'right', peh:'leaf', relatedTab:'skills', blurb:'Skill building workspace coming soon — forage, craft, and build new capabilities from the land.'},
+  'connections':       {product:'toba', title:'Connections', kind:'placeholder', route:'/campfire-circle', dock:'right', peh:'trader', relatedTab:'network', blurb:'Networking workspace coming soon — build alliances, strengthen bonds, and expand your reach.'},
+  'milestones':        {product:'toba', title:'Milestones', kind:'placeholder', route:'/stone-table', dock:'right', peh:'carver', relatedTab:'milestones', blurb:'Milestones workspace coming soon — achievements carved in stone that don\'t fade.'},
+  'career-planning':   {product:'toba', title:'Career Planning', kind:'placeholder', route:'/cave-paintings', dock:'right', peh:'sage', relatedTab:'overview', blurb:'Planning workspace coming soon — strategic reflection, vision-mapping, and long-term goals drawn on cave walls.'},
+  'fire-processing':   {product:'toba', title:'Fire Processing', kind:'placeholder', route:'/fire-pit', dock:'right', peh:'smith', relatedTab:'skills', blurb:'Fire processing workspace coming soon — transform raw experience into refined capability. Cook, process, deliver.'}
 };
 
 // ── Registry lookups ───────────────────────────────────────────────────
@@ -600,36 +607,37 @@ function renderPehDevSwitcher(active){
 }
 
 // ── Settlement Overview console (the kind:'deck' workspace body) ───────
-// Toba's career overview: a primal campfire console with 6 area cards.
+// Toba's career overview: a cave entrance console with 6 area cards.
 function renderSettlementConsole(){
-  const cards=[
-    {ws:'career-paths',    scene:'the-trail',     glyph:'pathfinder', title:'Career Paths',   desc:'Explore trajectories, map transitions, and chart your course forward.'},
-    {ws:'skill-building',  scene:'the-forge',     glyph:'smith',      title:'Skill Building',  desc:'Hammer raw potential into refined capability. Heat, pressure, persistence.'},
-    {ws:'connections',     scene:'the-gathering', glyph:'trader',     title:'Connections',     desc:'Build alliances, strengthen bonds, and expand your network.'},
-    {ws:'milestones',      scene:'the-totem',     glyph:'carver',     title:'Milestones',      desc:'Achievements carved in stone — markers that don\'t fade.'},
-    {ws:'career-planning', scene:'the-cave',      glyph:'sage',       title:'Planning',        desc:'Quiet reflection. Draw the plans that shape everything ahead.'}
-  ];
-  return `<div class="settle-console">
-    <div class="settle-hero">
-      <span class="settle-hero-mark" aria-hidden="true">🔥</span>
-      <div>
-        <h2>Welcome to the Settlement</h2>
-        <p>I'm Peh — and in this life, I'm a stone age man. Every career starts right here by the fire. One decision, one step. The forge, the trail, the gathering — they're all waiting. Where do we begin?</p>
-      </div>
-    </div>
-    <h3 class="settle-section-title">Settlement areas</h3>
-    <div class="settle-cards">${cards.map((c)=>`
-      <button class="settle-card" type="button" onclick="pehHotspot('${c.ws}','${c.scene}')">
-        <span class="settle-card-glyph">${pehGlyph(c.glyph)}</span>
-        <span class="settle-card-title">${esc(c.title)}</span>
-        <span class="settle-card-desc">${esc(c.desc)}</span>
-      </button>`).join('')}</div>
-    <div class="settle-ways">
-      <p>"Every journey starts with one step. The forge doesn't care about excuses — only results."</p>
-      <div class="settle-ways-row"><span class="settle-way">Campfire</span><span class="settle-way">Trail</span><span class="settle-way">Forge</span><span class="settle-way">Gathering</span><span class="settle-way">Totem</span><span class="settle-way">Cave</span></div>
-    </div>
-    <div class="settle-foot">THE SETTLEMENT · Toba · Career Transformation Platform</div>
-  </div>`;
+ const cards=[
+    {ws:'career-paths',    scene:'hunting-grounds',  glyph:'pathfinder', title:'Hunting Grounds',  desc:'Career paths and training — track, explore, and chart your course forward.'},
+    {ws:'skill-building',  scene:'gathering-place',  glyph:'leaf',       title:'Gathering Place',  desc:'Foraging, crafting, building skills from the earth.'},
+    {ws:'connections',     scene:'campfire-circle',  glyph:'trader',     title:'Campfire Circle',  desc:'The social hub — build alliances, share stories, strengthen bonds.'},
+    {ws:'fire-processing', scene:'fire-pit',         glyph:'smith',      title:'Fire Pit',         desc:'Transform raw experience into refined capability. Cook, process, deliver.'},
+    {ws:'milestones',      scene:'stone-table',      glyph:'carver',     title:'Stone Table',      desc:'Council decisions and milestones carved in stone — markers that don\'t fade.'},
+    {ws:'career-planning', scene:'cave-paintings',   glyph:'sage',       title:'Cave Paintings',   desc:'Vision and strategy drawn on cave walls. Quiet reflection and long-term goals.'}
+ ];
+ return `<div class="settle-console">
+   <div class="settle-hero">
+     <span class="settle-hero-mark" aria-hidden="true">🔥</span>
+     <div>
+        <h2>Welcome to the Cave Entrance</h2>
+        <p>I'm Peh — and in this life, I'm a stone age man. Every career starts right here at the cave entrance. One decision, one step. The hunting grounds, the campfire circle, the gathering place — they're all waiting. Where do we begin?</p>
+     </div>
+   </div>
+    <h3 class="settle-section-title">Settlement locations</h3>
+   <div class="settle-cards">${cards.map((c)=>`
+     <button class="settle-card" type="button" onclick="pehHotspot('${c.ws}','${c.scene}')">
+       <span class="settle-card-glyph">${pehGlyph(c.glyph)}</span>
+       <span class="settle-card-title">${esc(c.title)}</span>
+       <span class="settle-card-desc">${esc(c.desc)}</span>
+     </button>`).join('')}</div>
+   <div class="settle-ways">
+     <p>"Every journey starts with one step. The fire doesn't care about excuses — only results."</p>
+      <div class="settle-ways-row"><span class="settle-way">Cave Entrance</span><span class="settle-way">Cave Paintings</span><span class="settle-way">Hunting Grounds</span><span class="settle-way">Campfire Circle</span><span class="settle-way">Gathering Place</span><span class="settle-way">Fire Pit</span><span class="settle-way">Stone Table</span></div>
+   </div>
+   <div class="settle-foot">THE SETTLEMENT · Toba · Career Transformation Platform</div>
+ </div>`;
 }
 
 // ── Keyboard: Esc closes overlay; Alt+T travel; Alt+M mode toggle ──────
