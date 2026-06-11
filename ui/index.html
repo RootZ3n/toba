@@ -688,5 +688,14 @@ function boot(){
 window.boot=boot;
 boot();
 </script>
+<!-- ── Backend wiring (loaded after the inline engine boots) ──────────────
+     api.js     — uniform {ok,data,error} client for the Toba service
+     peh-guide.js — Peh's voice (male, he/him) + HUD speech bubble
+     scenes.js  — live career data injected into each location's workspace
+     app.js     — status dot · command bar · activity journal -->
+<script src="api.js" defer></script>
+<script src="peh-guide.js" defer></script>
+<script src="scenes.js" defer></script>
+<script src="app.js" defer></script>
 </body>
 </html>

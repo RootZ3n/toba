@@ -42,6 +42,37 @@ import {
 import type { NetworkConfig } from "./network.js";
 import { classifyBind } from "./network.js";
 
+// ── World-engine UI (ui/ at the repo root) — the immersive frontend ──────
+// Served live from disk so edits show without a restart. Both `tsx src/...`
+// (dev) and `dist/` (built) sit one level under the repo root, so ".." + ui
+// resolves correctly in either case.
+const __uiDir = (() => {
+  try { return join(dirname(fileURLToPath(import.meta.url)), "..", "ui"); }
+  catch { return join(process.cwd(), "ui"); }
+})();
+const UI_CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml", ".webp": "image/webp",
+};
+function readUiFile(rel: string): Buffer | null {
+  // `rel` is always a fixed, server-controlled path — never raw user input.
+  const path = join(__uiDir, rel);
+  if (!path.startsWith(__uiDir) || !existsSync(path)) return null;
+  try { return readFileSync(path); } catch { return null; }
+}
+function sendUiFile(reply: import("fastify").FastifyReply, rel: string) {
+  const buf = readUiFile(rel);
+  if (!buf) return reply.status(404).send("Not found");
+  const ext = rel.slice(rel.lastIndexOf("."));
+  return reply
+    .header("content-type", UI_CONTENT_TYPES[ext] ?? "application/octet-stream")
+    .header("cache-control", "no-cache")
+    .send(buf);
+}
+
 const TOBA_VERSION = process.env["TOBA_VERSION"] ?? process.env["TOBA_VERSION"] ?? "5.0.0";
 const TOBA_PORT = parseInt(process.env["TOBA_PORT"] ?? process.env["CURSUS_PORT"] ?? "18815", 10);
 const TOBA_AUTOMATION_MODE = process.env["TOBA_AUTOMATION_MODE"] ?? process.env["TOBA_AUTOMATION_MODE"] ?? "approval-required";
@@ -298,12 +329,37 @@ export function registerRoutes(
   // Web UI (SPA)
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Primary frontend: the immersive world engine in ui/. Falls back to the
+  // classic SPA, then to a plain-text hint, if the ui/ assets are absent.
   server.get("/", async (_req, reply) => {
+    const buf = readUiFile("index.html");
+    if (buf) return reply.header("content-type", "text/html; charset=utf-8").send(buf);
+    if (WEB_INDEX) return reply.header("content-type", "text/html; charset=utf-8").send(WEB_INDEX);
+    return reply
+      .header("content-type", "text/plain; charset=utf-8")
+      .status(500)
+      .send("Toba UI assets not found. Expected ui/index.html or src/web/index.html. See /api for the JSON endpoint map.");
+  });
+
+  // World-engine modules + theme + assets (served from ui/ at the repo root).
+  server.get("/toba.css", async (_req, reply) => sendUiFile(reply, "toba.css"));
+  server.get("/api.js", async (_req, reply) => sendUiFile(reply, "api.js"));
+  server.get("/peh-guide.js", async (_req, reply) => sendUiFile(reply, "peh-guide.js"));
+  server.get("/scenes.js", async (_req, reply) => sendUiFile(reply, "scenes.js"));
+  server.get("/app.js", async (_req, reply) => sendUiFile(reply, "app.js"));
+  server.get<{ Params: { file: string } }>("/assets/:file", async (req, reply) => {
+    const file = req.params.file;
+    if (!/^[A-Za-z0-9._-]+$/.test(file)) return reply.status(404).send("Not found");
+    return sendUiFile(reply, join("assets", file));
+  });
+
+  // Classic SPA (the pre-world-engine dashboard) remains reachable here.
+  server.get("/classic", async (_req, reply) => {
     if (!WEB_INDEX) {
       return reply
         .header("content-type", "text/plain; charset=utf-8")
         .status(500)
-        .send("Toba UI assets not found. Expected src/web/index.html. See /api for the JSON endpoint map.");
+        .send("Classic UI assets not found. Expected src/web/index.html.");
     }
     return reply.header("content-type", "text/html; charset=utf-8").send(WEB_INDEX);
   });
