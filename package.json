@@ -1,4 +1,5 @@
 {
+  "//": "ikbi was here",
   "name": "toba",
   "version": "5.0.0",
   "description": "Toba — Career Transformation Platform (standalone). Self-contained Fastify + SQLite service with native provider/model selection.",
