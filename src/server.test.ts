@@ -1936,7 +1936,7 @@ describe("Toba standalone", () => {
   // Web UI (SPA) shell
   // ══════════════════════════════════════════════════════════════════════════
 
-  it("GET / serves the SPA shell HTML", async () => {
+  it("GET / serves the world-engine UI shell HTML", async () => {
     const { app } = create();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/" });
@@ -1944,13 +1944,13 @@ describe("Toba standalone", () => {
     expect(res.headers["content-type"]).toContain("text/html");
     const body = res.body;
     // Shell references its static assets
-    expect(body).toContain("/assets/styles.css");
-    expect(body).toContain("/assets/app.js");
-    // Shell mounts the navigation for every required workspace
-    for (const hash of ["#dashboard", "#peh", "#profile", "#agents", "#campaigns", "#jobscout", "#apps", "#queue", "#receipts", "#settings"]) {
-      expect(body).toContain(hash);
+    expect(body).toContain("toba.css");
+    expect(body).toContain('<div id="app">');
+    // Shell mounts the world-engine navigation elements
+    for (const label of ["Career Overview", "Career Paths", "Skill Building", "Connections", "Milestones"]) {
+      expect(body).toContain(label);
     }
-    expect(body).toContain("Career Transformation Platform");
+    expect(body).toContain("The Settlement");
   });
 
   it("GET /assets/app.js returns JavaScript with key API calls", async () => {
