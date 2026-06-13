@@ -2263,6 +2263,40 @@ describe("Toba standalone", () => {
     expect(body.context.salary_range).toEqual({ min: 70000, max: 110000 });
     expect(body.effective.salary_min.source).toBe("onboarding");
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // GET /api/status
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it("GET /api/status returns 200 with expected fields", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/api/status" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("ok");
+    expect(typeof body.version).toBe("string");
+    expect(typeof body.uptime).toBe("number");
+    expect(typeof body.memoryUsage).toBe("number");
+    expect(typeof body.timestamp).toBe("string");
+  });
+
+  it("GET /api/status version matches package.json", async () => {
+    const { app } = create();
+    await app.ready();
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf-8")) as { version: string };
+    const res = await app.inject({ method: "GET", url: "/api/status" });
+    expect(res.json().version).toBe(pkg.version);
+  });
+
+  it("GET /api/status uptime and memoryUsage are positive numbers", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/api/status" });
+    const body = res.json();
+    expect(body.uptime).toBeGreaterThan(0);
+    expect(body.memoryUsage).toBeGreaterThan(0);
+  });
 });
 
 // Regression guard for the BLOCKER where rewriteUrl did `"/toba/" + url.slice(8)`

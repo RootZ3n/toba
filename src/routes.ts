@@ -74,6 +74,17 @@ function sendUiFile(reply: import("fastify").FastifyReply, rel: string) {
 }
 
 const TOBA_VERSION = process.env["TOBA_VERSION"] ?? process.env["TOBA_VERSION"] ?? "5.0.0";
+
+const PKG_VERSION = (() => {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
+    return pkg.version ?? TOBA_VERSION;
+  } catch {
+    return TOBA_VERSION;
+  }
+})();
+
 const TOBA_PORT = parseInt(process.env["TOBA_PORT"] ?? process.env["CURSUS_PORT"] ?? "18815", 10);
 const TOBA_AUTOMATION_MODE = process.env["TOBA_AUTOMATION_MODE"] ?? process.env["TOBA_AUTOMATION_MODE"] ?? "approval-required";
 // Optional legacy bridge URL — disabled by default. Bridge is for legacy
@@ -548,6 +559,16 @@ export function registerRoutes(
       velum_enabled: true,
       last_job_scout_run: lastScoutReceipts[0]?.timestamp ?? null,
       pending_approvals: v2.countPendingAutomation(),
+    });
+  });
+
+  server.get("/api/status", async (_req, reply) => {
+    return reply.send({
+      status: "ok",
+      version: PKG_VERSION,
+      uptime: process.uptime(),
+      memoryUsage: process.memoryUsage().rss,
+      timestamp: new Date().toISOString(),
     });
   });
 
