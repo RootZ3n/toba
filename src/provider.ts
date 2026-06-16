@@ -37,7 +37,7 @@ import { URL } from "node:url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-export type ProviderId = "none" | "echo" | "ollama" | "openai" | "anthropic" | "openrouter" | "xiaomi" | string;
+export type ProviderId = "none" | "echo" | "ollama" | "openai" | "anthropic" | "openrouter" | "xiaomi" | "google" | "groq" | "mistral" | "together" | "deepseek" | string;
 
 export interface ProviderDef {
   id: ProviderId;
@@ -56,6 +56,11 @@ export const PROVIDER_REGISTRY: Record<string, ProviderDef> = {
   anthropic:  { id: "anthropic",  label: "Anthropic",                    local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.anthropic.com" },
   openrouter: { id: "openrouter", label: "OpenRouter (OpenAI-compat)",   local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://openrouter.ai/api/v1" },
   xiaomi:     { id: "xiaomi",     label: "Xiaomi MiMo Direct",            local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.xiaomimimo.com/v1" },
+  google:     { id: "google",     label: "Google Gemini",                 local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://generativelanguage.googleapis.com/v1beta" },
+  groq:       { id: "groq",       label: "Groq",                          local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.groq.com/openai/v1" },
+  mistral:    { id: "mistral",    label: "Mistral AI",                    local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.mistral.ai/v1" },
+  together:   { id: "together",   label: "Together AI",                   local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.together.xyz/v1" },
+  deepseek:   { id: "deepseek",   label: "DeepSeek",                      local: false, requires_api_key: true,  requires_base_url: false, default_base_url: "https://api.deepseek.com/v1" },
 };
 
 export interface ProviderConfig {
@@ -124,6 +129,11 @@ function defaultConfigFromEnv(): ProviderConfig {
     provider === "openai"     ? penv("TOBA_OPENAI_API_KEY", "CURSUS_OPENAI_API_KEY")     :
     provider === "anthropic"  ? penv("TOBA_ANTHROPIC_API_KEY", "CURSUS_ANTHROPIC_API_KEY")  :
     provider === "xiaomi"    ? penv("TOBA_XIAOMI_API_KEY", "CURSUS_XIAOMI_API_KEY") ?? penv("TOBA_PROVIDER_API_KEY", "CURSUS_PROVIDER_API_KEY") :
+    provider === "google"     ? penv("TOBA_GOOGLE_API_KEY", "CURSUS_GOOGLE_API_KEY")     :
+    provider === "groq"       ? penv("TOBA_GROQ_API_KEY", "CURSUS_GROQ_API_KEY")         :
+    provider === "mistral"    ? penv("TOBA_MISTRAL_API_KEY", "CURSUS_MISTRAL_API_KEY")   :
+    provider === "together"   ? penv("TOBA_TOGETHER_API_KEY", "CURSUS_TOGETHER_API_KEY") :
+    provider === "deepseek"   ? penv("TOBA_DEEPSEEK_API_KEY", "CURSUS_DEEPSEEK_API_KEY") :
     undefined;
   const api_key = apiKeyForProvider ?? penv("TOBA_PROVIDER_API_KEY", "CURSUS_PROVIDER_API_KEY") ?? "";
   const local_only = (penv("TOBA_LOCAL_ONLY", "CURSUS_LOCAL_ONLY") ?? "").toLowerCase() === "true";
@@ -409,11 +419,11 @@ async function chatOllama(req: ChatRequest, cfg: ProviderConfig): Promise<ChatRe
   };
 }
 
-async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerId: "openai" | "openrouter" | "xiaomi"): Promise<ChatResponse> {
+async function chatOpenAICompat(req: ChatRequest, cfg: ProviderConfig, providerId: "openai" | "openrouter" | "xiaomi" | "groq" | "mistral" | "together" | "deepseek"): Promise<ChatResponse> {
   const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
-  // OpenAI uses /v1/chat/completions; OpenRouter's v1 is baked into its base URL,
-  // so the path on OpenRouter is just /chat/completions.
-  const path = providerId === "openrouter" || providerId === "xiaomi" ? "/chat/completions" : "/v1/chat/completions";
+  // OpenAI uses /v1/chat/completions; OpenRouter/xiaomi/groq/mistral/together/deepseek
+  // have their version baked into base URL, so the path is just /chat/completions.
+  const path = providerId === "openai" ? "/v1/chat/completions" : "/chat/completions";
   const headers: Record<string, string> = {
     "authorization": `Bearer ${cfg.api_key}`,
   };
@@ -466,10 +476,14 @@ export function buildRequestPreview(cfg: ProviderConfig, req: ChatRequest): {
   switch (cfg.provider) {
     case "openrouter":
     case "xiaomi":
-    case "openai": {
-      const providerId = cfg.provider as "openai" | "openrouter" | "xiaomi";
+    case "openai":
+    case "groq":
+    case "mistral":
+    case "together":
+    case "deepseek": {
+      const providerId = cfg.provider as "openai" | "openrouter" | "xiaomi" | "groq" | "mistral" | "together" | "deepseek";
       const base = cfg.base_url || PROVIDER_REGISTRY[providerId]!.default_base_url!;
-      const path = providerId === "openrouter" || providerId === "xiaomi" ? "/chat/completions" : "/v1/chat/completions";
+      const path = providerId === "openai" ? "/v1/chat/completions" : "/chat/completions";
       const headers: Record<string, string> = {
         "authorization": cfg.api_key ? `Bearer [REDACTED:${cfg.api_key.length}]` : "Bearer [unset]",
       };
@@ -504,9 +518,17 @@ export function buildRequestPreview(cfg: ProviderConfig, req: ChatRequest): {
     case "ollama": {
       const base = cfg.base_url || "http://127.0.0.1:11434";
       return {
-        url: `${base.replace(/\/$/, "")}/api/chat`,
+        url: `${base.replace(/\/+$/, "")}/api/chat`,
         headers: {},
         body: { model: cfg.model, messages: req.messages, stream: false },
+      };
+    }
+    case "google": {
+      const base = cfg.base_url || "https://generativelanguage.googleapis.com/v1beta";
+      return {
+        url: `${base.replace(/\/+$/, "")}/models/${encodeURIComponent(cfg.model)}:generateContent?key=[REDACTED:${cfg.api_key?.length ?? 0}]`,
+        headers: { "Content-Type": "application/json" },
+        body: { contents: req.messages.filter(m => m.role !== "system").map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })) },
       };
     }
     default:
@@ -550,6 +572,47 @@ async function chatAnthropic(req: ChatRequest, cfg: ProviderConfig): Promise<Cha
 
 // ── Public entry point ─────────────────────────────────────────────────────
 
+async function chatGoogle(req: ChatRequest, cfg: ProviderConfig): Promise<ChatResponse> {
+  const base = cfg.base_url || "https://generativelanguage.googleapis.com/v1beta";
+  // Google Gemini uses native content format with key as query param.
+  const systemMsgs = req.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+  for (const m of req.messages) {
+    if (m.role === "system") continue;
+    contents.push({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    });
+  }
+  const generationConfig: Record<string, unknown> = {
+    ...(req.max_tokens !== undefined ? { maxOutputTokens: req.max_tokens } : {}),
+    ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+  };
+  const model = cfg.model;
+  const url = `${base.replace(/\/+$/, "")}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cfg.api_key)}`;
+  const res = await httpJson("POST", url, { "Content-Type": "application/json" }, {
+    ...(systemMsgs ? { systemInstruction: { parts: [{ text: systemMsgs }] } } : {}),
+    contents,
+    generationConfig,
+  });
+  if (res.status < 200 || res.status >= 300) {
+    throw new ProviderError(502, "google_error", `Google Gemini returned ${res.status}: ${res.body.slice(0, 200)}`);
+  }
+  const parsed = JSON.parse(res.body) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  return {
+    content: text,
+    provider: "google",
+    model: cfg.model,
+    local: false,
+    finish_reason: "stop",
+    usage: parsed.usageMetadata ? { input_tokens: parsed.usageMetadata.promptTokenCount, output_tokens: parsed.usageMetadata.candidatesTokenCount } : undefined,
+  };
+}
+
 export async function chat(req: ChatRequest, overrides?: Partial<ProviderConfig>): Promise<ChatResponse> {
   const cfg: ProviderConfig = { ...currentConfig, ...(overrides ?? {}) };
   const issues = getConfigurationIssues(cfg);
@@ -572,6 +635,11 @@ export async function chat(req: ChatRequest, overrides?: Partial<ProviderConfig>
     case "openrouter": return chatOpenAICompat(req, cfg, "openrouter");
     case "xiaomi":     return chatOpenAICompat(req, cfg, "xiaomi");
     case "anthropic":  return chatAnthropic(req, cfg);
+    case "google":     return chatGoogle(req, cfg);
+    case "groq":       return chatOpenAICompat(req, cfg, "groq");
+    case "mistral":    return chatOpenAICompat(req, cfg, "mistral");
+    case "together":   return chatOpenAICompat(req, cfg, "together");
+    case "deepseek":   return chatOpenAICompat(req, cfg, "deepseek");
     default:
       throw new ProviderError(400, "unknown_provider", `Provider "${cfg.provider}" has no adapter.`);
   }

@@ -11,15 +11,22 @@ If Peh is stopped, Toba keeps working.
 | Version | 5.0.0 |
 | Schema | 6 (Peh agent registry) |
 | Port | 18815 |
-| DB (canonical) | `/mnt/ai/toba/state/toba.db` |
+| DB (canonical) | `./state/toba.db` |
 | Service | `toba.service` (systemd) |
-| Working directory | `/mnt/ai/toba` |
+| Working directory | `.` (repo root) |
 | Framework | Fastify + TypeScript + better-sqlite3 (WAL) |
 
 ## Quick start
 
+### Prerequisites
+
+- Node.js 20 or newer
+- pnpm
+- Git
+
 ```bash
-cd /mnt/ai/toba
+git clone <repo-url> toba
+cd toba
 pnpm run toba:setup
 # or, equivalently:
 ./scripts/toba-setup.sh
@@ -33,8 +40,8 @@ That's the whole thing. `toba:setup` is an idempotent wizard that:
 
 1. Confirms preflight (cwd, pnpm, systemd, current service path, `.env`, Tailscale).
 2. Runs `pnpm install`, `pnpm typecheck`, `pnpm test`, `pnpm build`. Aborts on any failure (does **not** touch the service).
-3. Offers to migrate `toba.service` to `/mnt/ai/toba` if it's still on the legacy path. Backs up DB and unit file first.
-4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `/mnt/ai/toba/.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
+3. Offers to migrate `toba.service` to the current directory if it's still on the legacy path. Backs up DB and unit file first.
+4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
 5. Lists Peh agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
 6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `CURSUS_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
 7. Runs `verify-standalone.sh` and (when applicable) `verify-tailscale-ready.sh`.
@@ -93,7 +100,7 @@ the programmatic endpoint map with links to `/health`, `/version`, `/status`,
 
 ## Configuration
 
-All configuration is via environment variables. Set them in `/mnt/ai/toba/.env`
+All configuration is via environment variables. Set them in `.env`
 (loaded by the systemd unit) or in your shell when running directly.
 
 ### Service
@@ -102,7 +109,7 @@ All configuration is via environment variables. Set them in `/mnt/ai/toba/.env`
 | --- | --- | --- |
 | `CURSUS_PORT` | `18815` | Listen port |
 | `CURSUS_HOST` | `127.0.0.1` | Listen host. Non-loopback requires `CURSUS_AUTH_TOKEN`. |
-| `CURSUS_DB_PATH` | `/mnt/ai/toba/state/toba.db` | SQLite path |
+| `CURSUS_DB_PATH` | `./state/toba.db` | SQLite path |
 | `CURSUS_VERSION` | (from package.json) | Reported version string |
 | `CURSUS_CORS_ORIGIN` | `*` | CORS origin |
 | `CURSUS_AUTH_TOKEN` | (unset) | Bearer token. Required for non-loopback hosts (Tailscale or public). |
@@ -241,7 +248,7 @@ sudo systemctl stop peh.service   # or any *.service that's running
 sudo systemctl restart toba.service
 
 # Run the verification suite
-/mnt/ai/toba/scripts/verify-standalone.sh
+./scripts/verify-standalone.sh
 ```
 
 The script exercises `/health`, `/status`, `/toba/provider`,
@@ -257,7 +264,7 @@ ollama serve &
 ollama pull llama3
 
 # 2) Configure Toba
-cat > /mnt/ai/toba/.env <<'EOF'
+cat > .env <<'EOF'
 CURSUS_PROVIDER=ollama
 CURSUS_MODEL=llama3
 CURSUS_LOCAL_ONLY=true
@@ -317,7 +324,7 @@ Verify your setup:
 
 ```bash
 CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
-  /mnt/ai/toba/scripts/verify-tailscale-ready.sh
+./scripts/verify-tailscale-ready.sh
 ```
 
 ### Security guarantees
@@ -330,16 +337,16 @@ CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
 
 ## Migration: legacy path → canonical
 
-The service previously lived at `/mnt/ai/peh-v2/apps/toba`. To move it
-to the standalone canonical path `/mnt/ai/toba`:
+The service previously lived at a legacy path. To move it
+to the standalone canonical path:
 
 ```bash
-sudo /mnt/ai/toba/scripts/migrate-to-canonical.sh
+sudo ./scripts/migrate-to-canonical.sh
 ```
 
 That script stops `toba.service`, copies the SQLite DB (+WAL/SHM) into
-`/mnt/ai/toba/state`, installs `toba.service` from
-`/mnt/ai/toba/toba.service` into `/etc/systemd/system/`, runs
+`./state/`, installs `toba.service` from
+`./toba.service` into `/etc/systemd/system/`, runs
 `daemon-reload`, starts the service, and smoke-tests `/health`.
 
 The legacy DB file is left in place as backup.
@@ -362,7 +369,7 @@ The legacy DB file is left in place as backup.
 
 **Peh chat returns 503 with code `provider_unconfigured`**
 Set `CURSUS_PROVIDER` and `CURSUS_MODEL` (and `CURSUS_PROVIDER_API_KEY` for
-cloud providers) in `/mnt/ai/toba/.env` and restart the service, OR
+cloud providers) in `.env` and restart the service, OR
 `PATCH /toba/provider` at runtime.
 
 **`provider_misconfigured`**
