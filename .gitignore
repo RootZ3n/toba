@@ -8,8 +8,8 @@ state/
 *.db-wal
 *.db-shm
 .env
-.env*
 .env.local
+!.env.example
 .DS_Store
 *.log
 .vitest-cache/

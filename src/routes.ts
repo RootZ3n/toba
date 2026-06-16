@@ -358,6 +358,10 @@ export function registerRoutes(
   server.get("/peh-guide.js", async (_req, reply) => sendUiFile(reply, "peh-guide.js"));
   server.get("/scenes.js", async (_req, reply) => sendUiFile(reply, "scenes.js"));
   server.get("/app.js", async (_req, reply) => sendUiFile(reply, "app.js"));
+  // Translation layer: maps fantasy labels to plain English for demos
+  server.get("/translation-layer.js", async (_req, reply) => sendUiFile(reply, "translation-layer.js"));
+  server.get("/translation-layer.css", async (_req, reply) => sendUiFile(reply, "translation-layer.css"));
+  server.get("/translations-toba.js", async (_req, reply) => sendUiFile(reply, "translations-toba.js"));
   server.get<{ Params: { file: string } }>("/assets/:file", async (req, reply) => {
     const file = req.params.file;
     if (!/^[A-Za-z0-9._-]+$/.test(file)) return reply.status(404).send("Not found");

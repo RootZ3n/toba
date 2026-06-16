@@ -1,10 +1,26 @@
 {
-  "//": "ikbi was here",
   "name": "toba",
   "version": "5.0.0",
   "description": "Toba — Career Transformation Platform (standalone). Self-contained Fastify + SQLite service with native provider/model selection.",
-  "private": true,
   "type": "module",
+  "author": "Jeffrey Miller",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nousresearch/toba.git"
+  },
+  "homepage": "https://github.com/nousresearch/toba#readme",
+  "keywords": [
+    "career",
+    "transformation",
+    "ai",
+    "mimo",
+    "fastify",
+    "sqlite",
+    "job-search",
+    "resume",
+    "career-coaching"
+  ],
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json && mkdir -p dist/web && cp -r src/web/. dist/web/",
