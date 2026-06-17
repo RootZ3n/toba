@@ -43,7 +43,7 @@ That's the whole thing. `toba:setup` is an idempotent wizard that:
 3. Offers to migrate `toba.service` to the current directory if it's still on the legacy path. Backs up DB and unit file first.
 4. Prompts for an LLM provider — `ollama` / `openrouter` / `echo` / `skip`. Writes `.env` atomically with `chmod 600`. **API keys are read with no echo and never printed back.**
 5. Lists Peh agents and offers to route the strategist to OpenRouter DeepSeek v4 Pro (and keep others on the default).
-6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `CURSUS_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
+6. Optionally enables Tailscale access: binds `0.0.0.0`, sets `TOBA_REQUIRE_AUTH=true`, generates a 32-byte token. Token is shown **once**, also written to `.env`.
 7. Runs `verify-standalone.sh` and (when applicable) `verify-tailscale-ready.sh`.
 8. Prints a clean summary with the live status, Tailscale URL, and exact next commands.
 
@@ -107,25 +107,25 @@ All configuration is via environment variables. Set them in `.env`
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSUS_PORT` | `18815` | Listen port |
-| `CURSUS_HOST` | `127.0.0.1` | Listen host. Non-loopback requires `CURSUS_AUTH_TOKEN`. |
-| `CURSUS_DB_PATH` | `./state/toba.db` | SQLite path |
-| `CURSUS_VERSION` | (from package.json) | Reported version string |
-| `CURSUS_CORS_ORIGIN` | `*` | CORS origin |
-| `CURSUS_AUTH_TOKEN` | (unset) | Bearer token. Required for non-loopback hosts (Tailscale or public). |
-| `CURSUS_REQUIRE_AUTH` | (unset → auto) | `true` forces auth even on loopback. `false` keeps legacy behavior. |
-| `CURSUS_ALLOW_LOOPBACK_NO_AUTH` | `true` | When a token is set, loopback may still skip auth. Set `false` to require auth on every request. |
-| `CURSUS_AUTOMATION_MODE` | `approval-required` | `manual` / `recommend-only` / `approval-required` |
+| `TOBA_PORT` | `18815` | Listen port |
+| `TOBA_HOST` | `127.0.0.1` | Listen host. Non-loopback requires `TOBA_AUTH_TOKEN`. |
+| `TOBA_DB_PATH` | `./state/toba.db` | SQLite path |
+| `TOBA_VERSION` | (from package.json) | Reported version string |
+| `TOBA_CORS_ORIGIN` | `*` | CORS origin |
+| `TOBA_AUTH_TOKEN` | (unset) | Bearer token. Required for non-loopback hosts (Tailscale or public). |
+| `TOBA_REQUIRE_AUTH` | (unset → auto) | `true` forces auth even on loopback. `false` keeps legacy behavior. |
+| `TOBA_ALLOW_LOOPBACK_NO_AUTH` | `true` | When a token is set, loopback may still skip auth. Set `false` to require auth on every request. |
+| `TOBA_AUTOMATION_MODE` | `approval-required` | `manual` / `recommend-only` / `approval-required` |
 
 ### Provider / model (standalone)
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSUS_PROVIDER` | `none` | One of: `none`, `echo`, `ollama`, `openai`, `anthropic`, `openrouter` |
-| `CURSUS_MODEL` | `none` | Model name for the selected provider |
-| `CURSUS_PROVIDER_BASE_URL` | (provider default) | Base URL override. Alias: `CURSUS_PROVIDER_API_BASE`. |
-| `CURSUS_PROVIDER_API_KEY` | (unset) | API key for cloud providers. Never echoed in any response. |
-| `CURSUS_LOCAL_ONLY` | `false` | When `true`, cloud providers are rejected at both selection and call time. |
+| `TOBA_PROVIDER` | `none` | One of: `none`, `echo`, `ollama`, `openai`, `anthropic`, `openrouter`, `xiaomi`, `google`, `groq`, `mistral`, `together`, `deepseek` |
+| `TOBA_MODEL` | `none` | Model name for the selected provider |
+| `TOBA_PROVIDER_BASE_URL` | (provider default) | Base URL override. Alias: `TOBA_PROVIDER_API_BASE`. |
+| `TOBA_PROVIDER_API_KEY` | (unset) | API key for cloud providers. Never echoed in any response. |
+| `TOBA_LOCAL_ONLY` | `false` | When `true`, cloud providers are rejected at both selection and call time. |
 
 Local providers (no network, no API key):
 - `none` — Toba boots without a provider. Peh chat returns an actionable 503.
@@ -143,24 +143,24 @@ OpenRouter has provider-specific env vars that override the generic ones:
 
 | Variable | Purpose |
 | --- | --- |
-| `CURSUS_OPENROUTER_API_KEY` | Preferred API key env (falls back to `CURSUS_PROVIDER_API_KEY`) |
-| `CURSUS_OPENROUTER_REFERER` | Optional `HTTP-Referer` header (recommended by OpenRouter for app attribution) |
-| `CURSUS_OPENROUTER_TITLE`   | Optional `X-Title` header (default `Toba`) |
+| `TOBA_OPENROUTER_API_KEY` | Preferred API key env (falls back to `TOBA_PROVIDER_API_KEY`) |
+| `TOBA_OPENROUTER_REFERER` | Optional `HTTP-Referer` header (recommended by OpenRouter for app attribution) |
+| `TOBA_OPENROUTER_TITLE`   | Optional `X-Title` header (default `Toba`) |
 
 `.env` example:
 
 ```
-CURSUS_PROVIDER=openrouter
-CURSUS_MODEL=deepseek/deepseek-v4-pro
-CURSUS_PROVIDER_BASE_URL=https://openrouter.ai/api/v1
-CURSUS_OPENROUTER_API_KEY=OPENROUTER_API_KEY_HERE
-CURSUS_OPENROUTER_REFERER=https://toba.local
-CURSUS_OPENROUTER_TITLE=Toba
-CURSUS_LOCAL_ONLY=false
+TOBA_PROVIDER=openrouter
+TOBA_MODEL=deepseek/deepseek-v4-pro
+TOBA_PROVIDER_BASE_URL=https://openrouter.ai/api/v1
+TOBA_OPENROUTER_API_KEY=OPENROUTER_API_KEY_HERE
+TOBA_OPENROUTER_REFERER=https://toba.local
+TOBA_OPENROUTER_TITLE=Toba
+TOBA_LOCAL_ONLY=false
 ```
 
 If the exact OpenRouter slug for DeepSeek v4 Pro differs from
-`deepseek/deepseek-v4-pro`, set `CURSUS_MODEL` to whatever OpenRouter's
+`deepseek/deepseek-v4-pro`, set `TOBA_MODEL` to whatever OpenRouter's
 `/api/v1/models` listing returns — the value is passed through verbatim.
 
 The API key is **never** echoed in any response. `GET /toba/provider` and
@@ -179,7 +179,7 @@ Toba seeds five built-in Peh personas on first boot:
 | `interview-coach`   | STAR stories, behavioral + technical prep |
 
 Each agent can run its own provider and model. Agents without an override
-fall back to the global `CURSUS_PROVIDER` / `CURSUS_MODEL` default.
+fall back to the global `TOBA_PROVIDER` / `TOBA_MODEL` default.
 
 Endpoints:
 
@@ -195,7 +195,7 @@ Example: route the strategist to OpenRouter DeepSeek v4 Pro, keep
 resume-reviewer on a local model, force outreach-drafter local-only:
 
 ```bash
-TOK="..."  # CURSUS_AUTH_TOKEN if running over Tailscale; omit Authorization on loopback
+TOK="..."  # TOBA_AUTH_TOKEN if running over Tailscale; omit Authorization on loopback
 
 curl -X PATCH http://127.0.0.1:18815/toba/peh/agents/strategist \
   -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
@@ -214,15 +214,15 @@ Per-agent guarantees:
 - Velum redacts user input before any provider sees it.
 - `local_only=true` on an agent + cloud provider → 400 at PATCH time.
 - `cloud_allowed=false` + cloud provider at call time → 403, or fallback if configured.
-- Global `CURSUS_LOCAL_ONLY=true` blocks setting any cloud provider on any agent.
+- Global `TOBA_LOCAL_ONLY=true` blocks setting any cloud provider on any agent.
 - `peh_agent_chat` receipts record agent_id + provider + model + local_mode + velum review state.
 
 ### Optional Peh bridge
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CURSUS_BRIDGE_URL` | (unset, **disabled**) | Legacy Peh bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Toba core behavior never depends on it. |
-| `PEH_CURSUS_URL` | — | Backwards-compatible alias of `CURSUS_BRIDGE_URL`. |
+| `TOBA_BRIDGE_URL` | (unset, **disabled**) | Legacy Peh bridge URL. Surfaced in `/status` as `bridge_enabled: true`. Toba core behavior never depends on it. |
+| `PEH_TOBA_URL` | — | Backwards-compatible alias of `TOBA_BRIDGE_URL`. |
 
 ## API surface (selected)
 
@@ -265,9 +265,9 @@ ollama pull llama3
 
 # 2) Configure Toba
 cat > .env <<'EOF'
-CURSUS_PROVIDER=ollama
-CURSUS_MODEL=llama3
-CURSUS_LOCAL_ONLY=true
+TOBA_PROVIDER=ollama
+TOBA_MODEL=llama3
+TOBA_LOCAL_ONLY=true
 EOF
 sudo systemctl restart toba.service
 
@@ -286,11 +286,11 @@ curl -s -X POST localhost:18815/toba/peh/chat \
 Toba refuses to start on a non-loopback interface without a token. Set both:
 
 ```
-CURSUS_HOST=0.0.0.0
-CURSUS_PORT=18815
-CURSUS_AUTH_TOKEN=<paste-output-of:  openssl rand -hex 32 >
-CURSUS_REQUIRE_AUTH=true                 # require token even for loopback callers
-CURSUS_ALLOW_LOOPBACK_NO_AUTH=false      # belt-and-suspenders
+TOBA_HOST=0.0.0.0
+TOBA_PORT=18815
+TOBA_AUTH_TOKEN=<paste-output-of:  openssl rand -hex 32 >
+TOBA_REQUIRE_AUTH=true                 # require token even for loopback callers
+TOBA_ALLOW_LOOPBACK_NO_AUTH=false      # belt-and-suspenders
 ```
 
 Network exposure is auto-classified in `/status` as one of:
@@ -300,7 +300,7 @@ Network exposure is auto-classified in `/status` as one of:
 
 Public endpoints (no token): `/`, `/api`, `/assets/*`, `/health`, `/version`.
 The UI shell is public so a browser can load the token prompt; sensitive data
-routes still require `Authorization: Bearer $CURSUS_AUTH_TOKEN` when
+routes still require `Authorization: Bearer $TOBA_AUTH_TOKEN` when
 `auth_required=true`.
 
 Get your Tailscale IP:
@@ -316,14 +316,14 @@ http://<tailscale-ip>:18815/health
 ```
 
 ```bash
-curl -H "Authorization: Bearer $CURSUS_AUTH_TOKEN" \
+curl -H "Authorization: Bearer $TOBA_AUTH_TOKEN" \
   http://<tailscale-ip>:18815/status
 ```
 
 Verify your setup:
 
 ```bash
-CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
+TOBA_URL=http://<tailscale-ip>:18815 TOBA_AUTH_TOKEN=$TOBA_AUTH_TOKEN \
 ./scripts/verify-tailscale-ready.sh
 ```
 
@@ -333,7 +333,7 @@ CURSUS_URL=http://<tailscale-ip>:18815 CURSUS_AUTH_TOKEN=$CURSUS_AUTH_TOKEN \
 2. `/toba/provider`, `/toba/peh/agents`, `/toba/receipts`, `/toba/profile`, and every other sensitive endpoint requires the bearer when auth is enabled.
 3. API keys never appear in any GET — `api_key_set: true|false` only.
 4. Bearer comparison uses an exact match against `Bearer <token>` (no prefix tricks).
-5. CORS `*` is permitted by default for private-lab use; narrow `CURSUS_CORS_ORIGIN` if exposing beyond the tailnet.
+5. CORS `*` is permitted by default for private-lab use; narrow `TOBA_CORS_ORIGIN` if exposing beyond the tailnet.
 
 ## Migration: legacy path → canonical
 
@@ -362,13 +362,13 @@ The legacy DB file is left in place as backup.
 4. Receipts are written for every model call, every Velum review, every
    campaign/application action, every Job Scout ingest, and every automation
    queue transition — to the local `toba_receipts` table.
-5. `CURSUS_BRIDGE_URL` is unset by default. When set, it only surfaces a
+5. `TOBA_BRIDGE_URL` is unset by default. When set, it only surfaces a
    `bridge_enabled: true` flag in `/status`; no core endpoint reaches out to it.
 
 ## Troubleshooting
 
 **Peh chat returns 503 with code `provider_unconfigured`**
-Set `CURSUS_PROVIDER` and `CURSUS_MODEL` (and `CURSUS_PROVIDER_API_KEY` for
+Set `TOBA_PROVIDER` and `TOBA_MODEL` (and `TOBA_PROVIDER_API_KEY` for
 cloud providers) in `.env` and restart the service, OR
 `PATCH /toba/provider` at runtime.
 
@@ -378,8 +378,8 @@ causes: missing API key, unknown model, base URL not set for a custom
 deployment.
 
 **`local_only_violation`**
-`CURSUS_LOCAL_ONLY=true` blocks cloud providers. Switch to `ollama`/`echo`
-or unset `CURSUS_LOCAL_ONLY`.
+`TOBA_LOCAL_ONLY=true` blocks cloud providers. Switch to `ollama`/`echo`
+or unset `TOBA_LOCAL_ONLY`.
 
 **Native binding missing for `better-sqlite3`**
 `pnpm install` followed by `pnpm rebuild better-sqlite3`. The package's
@@ -388,7 +388,7 @@ or unset `CURSUS_LOCAL_ONLY`.
 ## Tests
 
 ```bash
-pnpm test         # 86 tests covering health, schema, all CRUD,
+pnpm test         # 153 tests covering health, schema, all CRUD,
                   # provider registry, Peh chat, Velum-before-provider,
                   # local-only enforcement, no-secret-leakage, no-Peh-import,
                   # Job Scout standalone, receipts on provider calls.

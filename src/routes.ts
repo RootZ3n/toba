@@ -73,7 +73,7 @@ function sendUiFile(reply: import("fastify").FastifyReply, rel: string) {
     .send(buf);
 }
 
-const TOBA_VERSION = process.env["TOBA_VERSION"] ?? process.env["TOBA_VERSION"] ?? "5.0.0";
+const TOBA_VERSION = process.env["TOBA_VERSION"] ?? process.env["CURSUS_VERSION"] ?? "5.0.0";
 
 const PKG_VERSION = (() => {
   try {
@@ -86,7 +86,7 @@ const PKG_VERSION = (() => {
 })();
 
 const TOBA_PORT = parseInt(process.env["TOBA_PORT"] ?? process.env["CURSUS_PORT"] ?? "18815", 10);
-const TOBA_AUTOMATION_MODE = process.env["TOBA_AUTOMATION_MODE"] ?? process.env["TOBA_AUTOMATION_MODE"] ?? "approval-required";
+const TOBA_AUTOMATION_MODE = process.env["TOBA_AUTOMATION_MODE"] ?? process.env["CURSUS_AUTOMATION_MODE"] ?? "approval-required";
 // Optional legacy bridge URL — disabled by default. Bridge is for legacy
 // integrations only and is NOT required.
 const TOBA_BRIDGE_URL = process.env["TOBA_BRIDGE_URL"] ?? process.env["CURSUS_BRIDGE_URL"] ?? process.env["PEH_CURSUS_URL"] ?? "";
