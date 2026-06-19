@@ -94,6 +94,19 @@ describe("Toba standalone", () => {
     expect(body.last_job_scout_run).toBeNull(); // no runs yet
   });
 
+  it("GET /toba/ping returns pong with timestamp", async () => {
+    const { app } = create();
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/toba/ping" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pong).toBe(true);
+    expect(typeof body.timestamp).toBe("number");
+    // timestamp should be close to now
+    expect(body.timestamp).toBeGreaterThan(Date.now() - 5000);
+    expect(body.timestamp).toBeLessThanOrEqual(Date.now());
+  });
+
   // ══════════════════════════════════════════════════════════════════════════
   // Schema + DB
   // ══════════════════════════════════════════════════════════════════════════
