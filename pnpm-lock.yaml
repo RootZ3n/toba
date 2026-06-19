@@ -17,6 +17,9 @@ importers:
       fastify:
         specifier: ^4.28.0
         version: 4.29.1
+      velum-ai:
+        specifier: file:../velum
+        version: file:../velum
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.5
@@ -1048,6 +1051,11 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  velum-ai@file:../velum:
+    resolution: {directory: ../velum, type: directory}
+    engines: {node: '>=18'}
+    hasBin: true
+
   vite-node@1.6.1:
     resolution: {integrity: sha512-YAXkfvGtuTzwWbDSACdJSg4A4DZiAqckWe90Zapc/sEX3XvHcw1NdurM/6od8J207tSDqNbSsgdCacBgvJKFuA==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -2002,6 +2010,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   util-deprecate@1.0.2: {}
+
+  velum-ai@file:../velum: {}
 
   vite-node@1.6.1(@types/node@20.19.41):
     dependencies:
