@@ -24,6 +24,7 @@
 
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { velumFastify } from "velum-ai/adapters/fastify";
 import { TobaV1DB, TobaV2DB } from "./db.js";
 import { registerRoutes } from "./routes.js";
 import { loadNetworkConfig } from "./network.js";
@@ -61,6 +62,9 @@ async function main() {
   });
 
   await server.register(cors, { origin: CORS_ORIGIN });
+
+  // Velum: AI privacy/injection defense middleware
+  velumFastify(server, { defaultPiiLevel: 2 });
 
   server.log.info(`Using database: ${DB_PATH}`);
 
