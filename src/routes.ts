@@ -12,6 +12,16 @@ import { dirname, join } from "node:path";
 import { inflateRawSync, inflateSync } from "node:zlib";
 import type { TobaV1DB, TobaProduct, ReceiptAction, AutomationStatus, LanePriority, EvalGrade, StoryFormat, PehAgent, PehSession } from "./db.js";
 import { TobaV2DB, TOBA_SCHEMA_VERSION } from "./db.js";
+import {
+  getToolsForAgent,
+  agentHasTools,
+  type ToolCall,
+  type ToolCallResult,
+} from "./tools/registry.js";
+import { registerWebSearchTool } from "./tools/web-search.js";
+import { registerApplicationTools, getTrackerApp, listTrackerApps, updateTrackerApp, deleteTrackerApp } from "./tools/applications.js";
+import type { TrackerAppStatus } from "./tools/applications.js";
+import { toolChat, type ToolChatMessage, providerSupportsTools } from "./tools/tool-chat.js";
 
 // ── Web SPA assets (loaded once at module init) ──────────────────────────
 const __webDir = (() => {
@@ -335,6 +345,13 @@ export function registerRoutes(
     port: parseInt(process.env["TOBA_PORT"] ?? process.env["CURSUS_PORT"] ?? "18815", 10),
     exposure: classifyBind(process.env["TOBA_HOST"] ?? process.env["CURSUS_HOST"] ?? "127.0.0.1"),
   };
+
+  // ── Initialize tool system ──────────────────────────────────────────────
+  // Get the raw DB handle from V2 for tool operations
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toolDb = (v2 as any).db as any;
+  registerWebSearchTool();
+  registerApplicationTools(toolDb);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Web UI (SPA)
@@ -1383,24 +1400,71 @@ export function registerRoutes(
     }
 
     try {
-      const chatReq: { messages: ChatMessage[]; max_tokens?: number; temperature?: number } = {
-        messages,
-      };
       const maxTokens = body.max_tokens ?? agent?.max_tokens ?? undefined;
       const temperature = body.temperature ?? agent?.temperature ?? undefined;
-      if (maxTokens !== undefined && maxTokens !== null) chatReq.max_tokens = maxTokens;
-      if (temperature !== undefined && temperature !== null) chatReq.temperature = temperature;
 
-      const result = await providerChat(chatReq, cfg);
+      // ── Tool-aware chat path ────────────────────────────────────────────
+      // If the agent has tools, use the tool-calling loop instead of plain chat.
+      const agentTools = agent ? getToolsForAgent(agent.id) : [];
+      const useToolChat = agent && agentTools.length > 0 && providerSupportsTools(cfg.provider);
+
+      let resultContent: string;
+      let resultProvider: string;
+      let resultModel: string;
+      let resultLocal: boolean;
+      let resultFinishReason: string | undefined;
+      let resultUsage: { input_tokens?: number; output_tokens?: number } | undefined;
+      let toolCallsMade = 0;
+      let toolsUsedList: string[] = [];
+
+      if (useToolChat) {
+        // Build tool-aware messages
+        const toolMessages: ToolChatMessage[] = messages.map(m => ({
+          role: m.role as "system" | "user" | "assistant",
+          content: m.content,
+        }));
+
+        const toolResult = await toolChat({
+          messages: toolMessages,
+          tools: agentTools,
+          ...(maxTokens !== undefined && maxTokens !== null ? { max_tokens: maxTokens } : {}),
+          ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
+        }, cfg);
+
+        resultContent = toolResult.content;
+        resultProvider = toolResult.provider;
+        resultModel = toolResult.model;
+        resultLocal = toolResult.local;
+        resultFinishReason = toolResult.finish_reason;
+        resultUsage = toolResult.usage;
+        toolCallsMade = toolResult.tool_calls_made;
+        toolsUsedList = toolResult.tools_used;
+      } else {
+        // Standard chat path (no tools)
+        const chatReq: { messages: ChatMessage[]; max_tokens?: number; temperature?: number } = {
+          messages,
+        };
+        if (maxTokens !== undefined && maxTokens !== null) chatReq.max_tokens = maxTokens;
+        if (temperature !== undefined && temperature !== null) chatReq.temperature = temperature;
+
+        const plainResult = await providerChat(chatReq, cfg);
+        resultContent = plainResult.content;
+        resultProvider = plainResult.provider;
+        resultModel = plainResult.model;
+        resultLocal = plainResult.local;
+        resultFinishReason = plainResult.finish_reason;
+        resultUsage = plainResult.usage;
+      }
+
       v2.createReceipt({
         action: agent ? "peh_agent_chat" : "model_call",
-        provider: result.provider,
-        model: result.model,
-        local_mode: result.local,
+        provider: resultProvider,
+        model: resultModel,
+        local_mode: resultLocal,
         velum_reviewed: velumOn,
         velum_redacted: redacted,
         peh_agent_id: agent?.id ?? null,
-        result_summary: `Peh ${agent ? agent.id : "chat"}: ${result.provider}/${result.model} (${result.content.length} chars${result.finish_reason ? `, ${result.finish_reason}` : ""})${usingFallback ? " [fallback]" : ""}`,
+        result_summary: `Peh ${agent ? agent.id : "chat"}: ${resultProvider}/${resultModel} (${resultContent.length} chars${resultFinishReason ? `, ${resultFinishReason}` : ""})${usingFallback ? " [fallback]" : ""}${toolCallsMade > 0 ? `, ${toolCallsMade} tool calls` : ""}`,
       });
 
       // ── Persist conversation to Peh session ─────────────────────────────
@@ -1408,21 +1472,22 @@ export function registerRoutes(
         if (userText.trim()) {
           v2.appendPehMessage(pehSession.id, "user", userText);
         }
-        v2.appendPehMessage(pehSession.id, "assistant", result.content);
+        v2.appendPehMessage(pehSession.id, "assistant", resultContent);
       }
 
       return {
         status: 200,
         payload: {
           ok: true,
-          reply: result.content,
+          reply: resultContent,
           session_id: pehSession?.id ?? null,
           agent: agent ? { id: agent.id, display_name: agent.display_name } : null,
-          provider: { provider: result.provider, model: result.model, local: result.local, fallback_used: usingFallback },
+          provider: { provider: resultProvider, model: resultModel, local: resultLocal, fallback_used: usingFallback },
           velum: velumOn ? { reviewed: true, redacted, fields_redacted: fieldsRedacted } : { reviewed: false },
           context: pehContext.meta,
-          ...(result.usage ? { usage: result.usage } : {}),
-          ...(result.finish_reason ? { finish_reason: result.finish_reason } : {}),
+          ...(resultUsage ? { usage: resultUsage } : {}),
+          ...(resultFinishReason ? { finish_reason: resultFinishReason } : {}),
+          ...(toolCallsMade > 0 ? { tools: { calls_made: toolCallsMade, tools_used: toolsUsedList } } : {}),
         },
       };
     } catch (err) {
@@ -2007,5 +2072,54 @@ export function registerRoutes(
     const updated = v2.updateApplicationLegitimacy(req.params.id, req.body ?? {});
     if (!updated) return reply.status(404).send({ ok: false, error: "Application not found" });
     return reply.send({ ok: true, application: updated });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Tracker Applications (for application-tracker agent)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  server.get("/toba/tracker/applications", async (req, reply) => {
+    const status = (req.query as Record<string, string>).status as TrackerAppStatus | undefined;
+    const apps = listTrackerApps(toolDb, status || undefined);
+    return reply.send({ ok: true, applications: apps, count: apps.length });
+  });
+
+  server.get<{ Params: { id: string } }>("/toba/tracker/applications/:id", async (req, reply) => {
+    const app = getTrackerApp(toolDb, req.params.id);
+    if (!app) return reply.status(404).send({ ok: false, error: "Tracker application not found" });
+    return reply.send({ ok: true, application: app });
+  });
+
+  server.post<{ Body: { company: string; position: string; url?: string; date_applied?: string; status?: TrackerAppStatus; follow_up_date?: string; notes?: string } }>("/toba/tracker/applications", async (req, reply) => {
+    const { company, position } = req.body ?? {};
+    if (!company || !position) return reply.status(400).send({ ok: false, error: "company and position required" });
+    const { createTrackerApp } = await import("./tools/applications.js");
+    const app = createTrackerApp(toolDb, req.body!);
+    return reply.status(201).send({ ok: true, application: app });
+  });
+
+  server.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/toba/tracker/applications/:id", async (req, reply) => {
+    const updated = updateTrackerApp(toolDb, req.params.id, req.body as Parameters<typeof updateTrackerApp>[2]);
+    if (!updated) return reply.status(404).send({ ok: false, error: "Tracker application not found" });
+    return reply.send({ ok: true, application: updated });
+  });
+
+  server.delete<{ Params: { id: string } }>("/toba/tracker/applications/:id", async (req, reply) => {
+    const deleted = deleteTrackerApp(toolDb, req.params.id);
+    if (!deleted) return reply.status(404).send({ ok: false, error: "Tracker application not found" });
+    return reply.send({ ok: true, deleted: true });
+  });
+
+  // ── Tool info for agents ─────────────────────────────────────────────────
+  server.get("/toba/peh/agents/:id/tools", async (req, reply) => {
+    const agent = v2.getPehAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ ok: false, error: `Peh agent not found: ${req.params.id}` });
+    const tools = getToolsForAgent(agent.id);
+    return reply.send({
+      ok: true,
+      agent_id: agent.id,
+      has_tools: tools.length > 0,
+      tools: tools.map(t => ({ name: t.function.name, description: t.function.description })),
+    });
   });
 }

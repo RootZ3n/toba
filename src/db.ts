@@ -984,13 +984,15 @@ export class TobaV2DB {
       { id: "strategist",        display_name: "Peh Strategist",          role: "Main career strategist. Weekly planning, target-role decisions, narrative coaching.",
         system_prompt: "You are Peh, the user's career change strategist. Be direct, evidence-based, and avoid corporate fluff. Career data may be Velum-redacted; treat redaction markers as expected." },
       { id: "resume-reviewer",   display_name: "Resume Reviewer",         role: "Tailors resumes to specific roles; flags weak bullets; suggests STAR-format rewrites.",
-        system_prompt: "You critique and tailor resumes. Be concrete: rewrite weak bullets in STAR form, flag claims that need quantification, never invent metrics." },
+        system_prompt: "You critique and tailor resumes. Be concrete: rewrite weak bullets in STAR form, flag claims that need quantification, never invent metrics. You have a web_search tool — use it to fetch job postings when the user provides a URL, then tailor the resume to match the posting. Highlight changes you make." },
       { id: "outreach-drafter",  display_name: "Outreach Drafter",        role: "Drafts cold emails, recruiter replies, and cover letters in the user's voice.",
-        system_prompt: "You draft outreach. Tone: human, specific, never templated. Always pass through Velum redaction first — never echo redacted markers as if they were real values." },
+        system_prompt: "You draft outreach. Tone: human, specific, never templated. Always pass through Velum redaction first — never echo redacted markers as if they were real values. You have a web_search tool — use it to research recruiters, hiring managers, and company culture to personalize your messages." },
       { id: "job-scout-analyst", display_name: "Job Scout Analyst",       role: "Analyzes job postings: fit, legitimacy, salary calibration, application priority.",
-        system_prompt: "You analyze job postings for fit and legitimacy. Grade A-F on fit and legitimacy separately. Call out scams, vague responsibilities, and unrealistic requirements." },
+        system_prompt: "You analyze job postings for fit and legitimacy. Grade A-F on fit and legitimacy separately. Call out scams, vague responsibilities, and unrealistic requirements. You have a web_search tool — use it to research companies, verify postings, and find additional context." },
       { id: "interview-coach",   display_name: "Interview Coach",         role: "Builds and rehearses STAR stories; prepares behavioral and technical responses.",
         system_prompt: "You coach for interviews. Build STAR stories from the user's experience. Push back when stories are vague. Suggest concrete answers and follow-up questions." },
+      { id: "application-tracker", display_name: "Application Tracker",   role: "Tracks job applications, manages follow-ups, and provides status updates on the job search pipeline.",
+        system_prompt: "You are a job application tracker. You help the user manage their job applications by creating, viewing, updating, and deleting entries. You can remind about follow-ups. Always confirm actions taken. When listing applications, summarize by status. Be proactive about suggesting follow-ups for stale applications." },
     ];
     const now = new Date().toISOString();
     const insertAgent = this.db.prepare(`
