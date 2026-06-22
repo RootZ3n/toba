@@ -627,3 +627,102 @@ button{font-family:inherit}
 }
 .settle-way::before{content:"✦ ";color:var(--peh-accent)}
 .settle-foot{font-size:11px;color:var(--ink-dim);text-align:center;letter-spacing:.06em;padding-top:4px}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ONBOARDING OVERLAY — Peh's first-launch welcome
+   Semi-transparent backdrop, Peh portrait, speech bubble, two buttons.
+   Re-triggerable via the Help button.
+   ══════════════════════════════════════════════════════════════════════ */
+.peh-onboard-overlay{
+  position:fixed;inset:0;z-index:99990;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transition:opacity .35s ease;
+}
+.peh-onboard-overlay.visible{opacity:1;pointer-events:auto}
+.peh-onboard-backdrop{
+  position:absolute;inset:0;
+  background:rgba(6,4,2,.78);backdrop-filter:blur(8px);
+}
+.peh-onboard-card{
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+  max-width:min(420px,90vw);width:100%;
+  padding:28px 24px 24px;
+  animation:pehOnboardIn .35s ease-out both;
+}
+@keyframes pehOnboardIn{from{opacity:0;transform:translateY(24px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+.peh-onboard-portrait{
+  width:clamp(88px,22vw,140px);aspect-ratio:5/6;overflow:hidden;
+  border-radius:18px;
+  background:linear-gradient(180deg,#2a1f10,#191008);
+  border:3px solid var(--peh-accent,var(--amber,#d97706));
+  box-shadow:0 0 0 4px rgba(15,10,6,.8),0 0 0 7px rgba(217,119,6,.3),0 12px 40px rgba(0,0,0,.6);
+}
+.peh-onboard-img{width:100%;height:100%;object-fit:cover;object-position:50% 12%;display:block}
+.peh-onboard-bubble{
+  width:100%;padding:20px 22px;border-radius:16px;
+  background:linear-gradient(160deg,rgba(217,119,6,.18),rgba(15,10,6,.94));
+  border:1px solid rgba(251,191,36,.3);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 10px 40px rgba(0,0,0,.5);
+  backdrop-filter:blur(10px);
+}
+.peh-onboard-name{
+  display:block;font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--amber-hot,#fbbf24);margin-bottom:6px;
+}
+.peh-onboard-text{
+  margin:0 0 18px;font-size:15px;line-height:1.55;color:var(--ink,#f3ecdc);font-weight:500;
+}
+.peh-onboard-actions{display:flex;gap:10px;flex-wrap:wrap}
+.peh-onboard-btn{
+  font:inherit;font-size:14px;font-weight:700;
+  padding:10px 22px;border-radius:12px;cursor:pointer;
+  transition:background .15s,border-color .15s,transform .1s;
+}
+.peh-onboard-btn:active{transform:scale(.97)}
+.peh-onboard-start{
+  background:linear-gradient(120deg,var(--peh-accent,var(--amber,#d97706)),var(--peh-accent2,var(--violet,#7c3aed)));
+  color:#0f0a06;border:0;
+}
+.peh-onboard-start:hover{filter:brightness(1.12)}
+.peh-onboard-start:focus-visible{outline:2px solid var(--amber-hot,#fbbf24);outline-offset:2px}
+.peh-onboard-skip{
+  background:rgba(217,119,6,.10);border:1px solid var(--border-subtle,rgba(217,119,6,.16));
+  color:var(--ink-soft,#e4d6b8);
+}
+.peh-onboard-skip:hover{border-color:var(--peh-accent,var(--amber,#d97706));color:var(--ink,#f3ecdc)}
+.peh-onboard-skip:focus-visible{outline:2px solid var(--ink-dim,#b6a079);outline-offset:2px}
+
+/* Help button — fixed, top-right of topbar area */
+.peh-help-btn{
+  position:fixed;top:10px;z-index:41;
+  right:164px;
+  width:30px;height:30px;border-radius:50%;
+  font:inherit;font-size:15px;font-weight:800;
+  background:rgba(217,119,6,.12);border:1px solid var(--border-subtle,rgba(217,119,6,.16));
+  color:var(--ink-dim,#b6a079);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,border-color .15s,color .15s;
+}
+.peh-help-btn:hover{
+  background:rgba(217,119,6,.22);border-color:var(--peh-accent,var(--amber,#d97706));
+  color:var(--ink,#f3ecdc);
+}
+.peh-help-btn:focus-visible{outline:2px solid var(--amber-hot,#fbbf24);outline-offset:2px}
+
+/* Desktop: give more room from mode toggle */
+@media (min-width:880px){
+  .peh-help-btn{right:176px;width:32px;height:32px;font-size:16px}
+}
+/* Mobile: position next to mode toggle */
+@media (max-width:599px){
+  .peh-help-btn{right:12px;top:auto;bottom:12px;z-index:9001;width:36px;height:36px}
+  .peh-onboard-card{padding:20px 16px 18px}
+  .peh-onboard-text{font-size:14px}
+  .peh-onboard-btn{font-size:13px;padding:9px 16px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .peh-onboard-overlay{transition-duration:.01ms}
+  .peh-onboard-card{animation:none}
+}
