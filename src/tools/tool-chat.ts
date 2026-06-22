@@ -57,7 +57,7 @@ export interface ToolChatResponse {
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
-export const MAX_TOOL_ITERATIONS = 8;
+export const MAX_TOOL_ITERATIONS = 12;
 
 /** Providers that support OpenAI-compatible function calling. */
 export const TOOL_CAPABLE_PROVIDERS = new Set(["openai", "openrouter", "xiaomi", "groq", "mistral", "together", "deepseek"]);
