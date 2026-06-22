@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 
 // ── Tracker Application Types ──────────────────────────────────────────────
 
-export type TrackerAppStatus = "applied" | "interviewing" | "offer" | "rejected" | "ghosted";
+export type TrackerAppStatus = "saved" | "applied" | "interviewing" | "offer" | "rejected" | "ghosted";
 
 export interface TrackerApplication {
   id: string;
@@ -47,7 +47,7 @@ export function ensureTrackerTable(
       url           TEXT,
       date_applied  TEXT,
       status        TEXT NOT NULL DEFAULT 'applied'
-                    CHECK (status IN ('applied','interviewing','offer','rejected','ghosted')),
+                    CHECK (status IN ('saved','applied','interviewing','offer','rejected','ghosted')),
       follow_up_date TEXT,
       notes         TEXT,
       created_at    TEXT NOT NULL,
