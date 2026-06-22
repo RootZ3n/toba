@@ -210,6 +210,12 @@ function pehDevSwitchProduct(productId){
 function pehSetMode(mode){
   if(mode!=='immersive'&&mode!=='dashboard')return;
   state.pehverse.mode=mode;
+  // Switching into immersive closes any open dashboard tiles so they don't
+  // linger as overlay panels on top of the world map.
+  if(mode==='immersive'){
+    state.pehverse.workspaces=[];
+    state.pehverse.focus=null;
+  }
   localStorage.setItem('pehverse-mode',mode);
   render();
 }
