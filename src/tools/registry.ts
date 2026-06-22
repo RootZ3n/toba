@@ -69,9 +69,9 @@ export interface ToolCallResult {
 
 /** Which tools each agent has access to. Agents not listed have no tools. */
 const AGENT_TOOL_MAP: Record<string, string[]> = {
-  "job-scout-analyst": ["web_search"],
-  "resume-reviewer": ["web_search"],
-  "outreach-drafter": ["web_search"],
+  "job-scout-analyst": ["web_search", "web_extract"],
+  "resume-reviewer": ["web_search", "web_extract"],
+  "outreach-drafter": ["web_search", "web_extract"],
   "application-tracker": [
     "create_application",
     "list_applications",
