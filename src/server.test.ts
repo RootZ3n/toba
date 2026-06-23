@@ -1611,7 +1611,7 @@ describe("Toba standalone", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.ok).toBe(true);
-    expect(body.live_search_implemented).toBe(false);
+    expect(body.live_search_implemented).toBe(true);
     expect(body.ingestion_mode).toBe("manual_or_external_tool");
     expect(body.context.provider).toBeDefined();
   });

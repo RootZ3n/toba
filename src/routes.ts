@@ -2040,8 +2040,9 @@ export function registerRoutes(
       // Job Scout is standalone: it derives search context from local DB and
       // returns it for use by an external tool (manual or semi-manual ingestion
       // via POST /toba/job-scout/ingest). Live external job search is not
-      // implemented in-process — Toba does not crawl boards itself.
-      live_search_implemented: false,
+      // implemented in-process, but web search + extract tools (Tavily) are
+      // registered and available to the self-driving scout (/toba/job-scout/run).
+      live_search_implemented: true,
       ingestion_mode: "manual_or_external_tool",
       effective: eff,
       context: {
