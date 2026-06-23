@@ -73,6 +73,27 @@
     // Peh — the guide's voice on the backend
     pehChat: (message, opts) => post('/toba/peh/chat', Object.assign({ message }, opts || {})),
     pehSessions: () => get('/toba/peh/sessions'),
+
+    // Resumes + tailoring history (Batch 2 · TOBA-1)
+    resumes: () => get('/toba/resumes'),
+    uploadResume: (body) => post('/toba/resumes/upload', body),
+    tailorResume: (id, target_role, opts) =>
+      post('/toba/resumes/' + q(id) + '/tailor', Object.assign({ target_role }, opts || {})),
+    resumeVersions: (id) => get('/toba/resumes/' + q(id) + '/versions'),
+    promoteResumeVersion: (id, versionId) =>
+      post('/toba/resumes/' + q(id) + '/versions/' + q(versionId) + '/promote'),
+
+    // Outreach (Batch 2 · TOBA-4: qa_findings surfaced inline)
+    outreach: (status) => get('/toba/outreach' + (status ? '?status=' + q(status) : '')),
+    stageOutreach: (body) => post('/toba/outreach/stage', body),
+
+    // Self-driving Job Scout (Batch 2 · TOBA-2)
+    jobScoutRun: (body) => post('/toba/job-scout/run', body || {}),
+
+    // First-run guided setup quest (Batch 2 · TOBA-5)
+    setupQuest: () => get('/toba/setup/quest'),
+    setupMilestone: (step, detail) => post('/toba/setup/milestone', { step, detail }),
+    setProvider: (changes) => patch('/toba/provider', changes),
   };
 
   window.TobaAPI = TobaAPI;

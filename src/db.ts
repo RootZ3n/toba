@@ -15,7 +15,7 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 
 /** Current schema version — bump when adding tables/columns */
-export const TOBA_SCHEMA_VERSION = 8;
+export const TOBA_SCHEMA_VERSION = 9;
 
 /**
  * Work preference for a campaign.
@@ -95,6 +95,27 @@ export interface Outreach {
   id: string; application_id: string | null; type: OutreachType;
   subject: string; body: string; status: OutreachStatus;
   created_at: string; sent_at: string | null; gmail_thread_id: string | null;
+  qa_findings: string | null; // JSON array of QA findings from the mad-ptah bridge
+}
+
+/**
+ * A persisted tailored-resume snapshot. Written on every successful tailor call
+ * so the result survives a refresh and can be diffed against the base resume.
+ * Linked (optionally) to the application it was tailored for so the user can
+ * answer "which resume did I send to Acme?".
+ */
+export interface ResumeVersion {
+  id: string;
+  parent_resume_id: string;
+  target_role: string;
+  application_id: string | null;
+  tailored_text: string;
+  instructions: string | null;
+  velum_fields_redacted: string | null; // JSON array
+  qa_findings: string | null;            // JSON array of mad-ptah review findings
+  provider: string | null;
+  model: string | null;
+  created_at: string;
 }
 
 export interface PehSession {
@@ -126,7 +147,9 @@ export type ReceiptAction =
   | "onboarding_complete" | "resume_ingest"
   | "automation_create" | "automation_approve" | "automation_reject" | "automation_execute"
   | "insight_generate" | "job_scout_search"
-  | "peh_agent_update" | "peh_agent_chat";
+  | "peh_agent_update" | "peh_agent_chat"
+  | "resume_tailor" | "resume_promote" | "velum_injection_flag"
+  | "ptah_review" | "onboarding_milestone";
 
 export interface Receipt {
   id: string;
@@ -1035,6 +1058,29 @@ export class TobaV2DB {
     for (const sql of resumeColsV8) {
       try { this.db.exec(sql); } catch { /* already exists */ }
     }
+
+    // ── Schema V9: persisted resume versions + outreach QA findings ───────
+    // toba_resume_versions records every tailor call so the result survives a
+    // refresh and can be diffed against the base resume. qa_findings on
+    // toba_outreach carries the mad-ptah pre-send review (when the bridge is on).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS toba_resume_versions (
+        id                    TEXT PRIMARY KEY,
+        parent_resume_id      TEXT NOT NULL,
+        target_role           TEXT NOT NULL,
+        application_id        TEXT,
+        tailored_text         TEXT NOT NULL,
+        instructions          TEXT,
+        velum_fields_redacted TEXT,
+        qa_findings           TEXT,
+        provider              TEXT,
+        model                 TEXT,
+        created_at            TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_resume_versions_parent ON toba_resume_versions(parent_resume_id);
+      CREATE INDEX IF NOT EXISTS idx_resume_versions_app ON toba_resume_versions(application_id);
+    `);
+    try { this.db.exec("ALTER TABLE toba_outreach ADD COLUMN qa_findings TEXT"); } catch { /* already exists */ }
   }
 
   // ── Onboarding ────────────────────────────────────────────────────────────
@@ -1565,6 +1611,50 @@ export class TobaV2DB {
     return this.db.prepare("SELECT * FROM toba_resumes WHERE id = ?").get(id) as Resume | null;
   }
 
+  // ── Resume versions (tailoring history + diff) ──────────────────────────────
+
+  createResumeVersion(data: {
+    parent_resume_id: string;
+    target_role: string;
+    tailored_text: string;
+    application_id?: string | null;
+    instructions?: string | null;
+    velum_fields_redacted?: string[] | null;
+    qa_findings?: unknown[] | null;
+    provider?: string | null;
+    model?: string | null;
+  }): ResumeVersion {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO toba_resume_versions (
+        id, parent_resume_id, target_role, application_id, tailored_text,
+        instructions, velum_fields_redacted, qa_findings, provider, model, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, data.parent_resume_id, data.target_role, data.application_id ?? null, data.tailored_text,
+      data.instructions ?? null,
+      data.velum_fields_redacted ? JSON.stringify(data.velum_fields_redacted) : null,
+      data.qa_findings ? JSON.stringify(data.qa_findings) : null,
+      data.provider ?? null, data.model ?? null, now,
+    );
+    return this.getResumeVersion(id)!;
+  }
+
+  listResumeVersions(parentResumeId: string): ResumeVersion[] {
+    return this.db.prepare(
+      "SELECT * FROM toba_resume_versions WHERE parent_resume_id = ? ORDER BY created_at DESC",
+    ).all(parentResumeId) as ResumeVersion[];
+  }
+
+  getResumeVersion(id: string): ResumeVersion | null {
+    return this.db.prepare("SELECT * FROM toba_resume_versions WHERE id = ?").get(id) as ResumeVersion | null;
+  }
+
+  clearResumeVersions(): number {
+    return this.db.prepare("DELETE FROM toba_resume_versions").run().changes;
+  }
+
   // ── Outreach ────────────────────────────────────────────────────────────────
 
   listOutreach(status?: OutreachStatus): Outreach[] {
@@ -1578,6 +1668,14 @@ export class TobaV2DB {
     this.db.prepare(
       "INSERT INTO toba_outreach (id, application_id, type, subject, body, status, created_at) VALUES (?, ?, ?, ?, ?, 'staged', ?)"
     ).run(id, data.application_id ?? null, data.type, data.subject, data.body, now);
+    return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
+  }
+
+  /** Attach mad-ptah QA findings to a staged outreach row (JSON-encoded). */
+  setOutreachQaFindings(id: string, findings: unknown[]): Outreach | null {
+    const existing = this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach | undefined;
+    if (!existing) return null;
+    this.db.prepare("UPDATE toba_outreach SET qa_findings = ? WHERE id = ?").run(JSON.stringify(findings), id);
     return this.db.prepare("SELECT * FROM toba_outreach WHERE id = ?").get(id) as Outreach;
   }
 
@@ -1783,6 +1881,7 @@ export class TobaV2DB {
   }
 
   clearResumes(): number {
+    this.db.prepare("DELETE FROM toba_resume_versions").run();
     const result = this.db.prepare("DELETE FROM toba_resumes").run();
     return result.changes;
   }

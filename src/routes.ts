@@ -22,6 +22,8 @@ import { registerWebSearchTool } from "./tools/web-search.js";
 import { registerApplicationTools, getTrackerApp, listTrackerApps, updateTrackerApp, deleteTrackerApp } from "./tools/applications.js";
 import type { TrackerAppStatus } from "./tools/applications.js";
 import { toolChat, type ToolChatMessage, providerSupportsTools } from "./tools/tool-chat.js";
+import { guardContext } from "./velum-guard.js";
+import { reviewWithPtah, ptahEnabled, type PtahFinding } from "./ptah.js";
 
 // ── Web SPA assets (loaded once at module init) ──────────────────────────
 const __webDir = (() => {
@@ -320,6 +322,34 @@ function parseJsonArray(value: unknown): string[] {
 function makeResumeSummary(text: string): string {
   const lines = normalizeExtractedText(text).split(/\n+/).map(s => s.trim()).filter(Boolean);
   return summarizeText(lines.slice(0, 14).join("\n"), 1600);
+}
+
+/**
+ * Best-effort extraction of a JSON array of job objects from a model response.
+ * Models often wrap JSON in prose or ```json fences — pull out the first array.
+ */
+function parseJobsFromModel(content: string): Array<Record<string, unknown>> {
+  if (!content) return [];
+  const tryParse = (s: string): Array<Record<string, unknown>> | null => {
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+      if (parsed && typeof parsed === "object") {
+        const obj = parsed as Record<string, unknown>;
+        if (Array.isArray(obj.jobs)) return (obj.jobs as unknown[]).filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+      }
+      return null;
+    } catch { return null; }
+  };
+  // Whole response, then a fenced block, then the first [...] slice.
+  const direct = tryParse(content.trim());
+  if (direct) return direct;
+  const fence = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) { const r = tryParse(fence[1].trim()); if (r) return r; }
+  const start = content.indexOf("[");
+  const end = content.lastIndexOf("]");
+  if (start !== -1 && end > start) { const r = tryParse(content.slice(start, end + 1)); if (r) return r; }
+  return [];
 }
 
 function getProviderMeta() {
@@ -646,6 +676,78 @@ export function registerRoutes(
     return reply.send({ ok: true, onboarding: completed });
   });
 
+  // ── First-run guided setup quest ──────────────────────────────────────────
+  // Drives the interactive checklist in ui/onboarding.js from LIVE state instead
+  // of a cosmetic scripted tour. Each step maps to a settlement location that
+  // "lights up" once done. Completing the last step carves a milestone receipt.
+  server.get("/toba/setup/quest", async (_req, reply) => {
+    const provider = getProviderStatus();
+    const onboarding = v2.getOnboarding();
+    const profile = v1.getProfile();
+    const campaigns = v2.listCampaigns();
+    const resumes = v2.listResumes();
+    const applications = v2.getActiveCampaign() ? v2.listApplications(v2.getActiveCampaign()!.id) : [];
+    const lastScout = v2.listReceipts(1, "job_scout_run")[0] ?? null;
+
+    const modelReady = provider.provider !== "none" && provider.configured;
+    const profileReady = !!profile?.name && campaigns.length > 0;
+    const resumeReady = !!onboarding?.resume_uploaded || resumes.length > 0;
+    const jobsReady = !!lastScout || applications.length > 0;
+
+    const steps = [
+      {
+        id: "configure_model", order: 1, location: "The Fire (model forge)",
+        title: "Configure a model", done: modelReady,
+        description: "Pick a provider/model so Peh can think. Set it, then verify with an echo chat.",
+        action: { method: "PATCH", path: "/toba/provider" },
+      },
+      {
+        id: "profile_and_campaign", order: 2, location: "The Longhouse (records)",
+        title: "Tell Peh your name and target role", done: profileReady,
+        description: "Write your profile and create your first campaign (the hunt you're on).",
+        action: { method: "POST", path: "/toba/campaigns" },
+      },
+      {
+        id: "upload_resume", order: 3, location: "The Tannery (resume)",
+        title: "Upload your resume", done: resumeReady,
+        description: "Upload a PDF/DOCX/RTF/TXT resume. Velum redacts PII and screens for injection.",
+        action: { method: "POST", path: "/toba/resumes/upload" },
+      },
+      {
+        id: "find_jobs", order: 4, location: "The Watchtower (job scout)",
+        title: "Let Peh find your first jobs", done: jobsReady,
+        description: "Run the self-driving Job Scout to discover postings for your active campaign.",
+        action: { method: "POST", path: "/toba/job-scout/run" },
+      },
+    ];
+
+    const completed = steps.filter(s => s.done).length;
+    const nextStep = steps.find(s => !s.done) ?? null;
+    return reply.send({
+      ok: true,
+      quest: {
+        total: steps.length,
+        completed,
+        all_done: completed === steps.length,
+        next_step: nextStep?.id ?? null,
+        steps,
+      },
+      provider: getProviderMeta(),
+      automation_mode: TOBA_AUTOMATION_MODE,
+    });
+  });
+
+  // Carve a milestone receipt when a quest step lights up (called by the UI).
+  server.post<{ Body: { step?: string; detail?: string } }>("/toba/setup/milestone", async (req, reply) => {
+    const step = String(req.body?.step ?? "").trim();
+    if (!step) return reply.status(400).send({ ok: false, error: "step required" });
+    const receipt = v2.createReceipt({
+      action: "onboarding_milestone",
+      result_summary: `Setup quest milestone reached: ${step}${req.body?.detail ? ` — ${req.body.detail}` : ""}`,
+    });
+    return reply.send({ ok: true, receipt });
+  });
+
   server.post<{ Body: { text: string; tailored_for?: string } }>("/toba/onboarding/resume", async (req, reply) => {
     const resumeText = req.body?.text ?? "";
     if (!resumeText || resumeText.length < 20) {
@@ -961,6 +1063,10 @@ export function registerRoutes(
       });
     }
     const velumResult = TobaV2DB.velumReview(resumeText, "resume");
+    // ── Injection defense (velum-ai guardContext) ──────────────────────────
+    // Uploaded files are untrusted context: screen for prompt-injection before
+    // the text ever reaches the model. PII masking stays with velumReview above.
+    const guard = guardContext(velumResult.output, "tool");
     const resume = v2.createResume(velumResult.output, undefined, req.body?.tailored_for, {
       filename: extracted.filename ?? null,
       uploaded_at: new Date().toISOString(),
@@ -990,6 +1096,14 @@ export function registerRoutes(
         ? `Resume file uploaded (${extracted.filename}, ${resumeText.length} chars extracted). Velum: ${velumResult.fields_redacted.length} fields redacted.`
         : `Resume uploaded (${resumeText.length} chars). Velum: ${velumResult.fields_redacted.length} fields redacted.`,
     });
+    if (guard.injection_detected) {
+      v2.createReceipt({
+        action: "velum_injection_flag",
+        velum_reviewed: true,
+        result_summary: `Resume upload flagged for prompt-injection (${guard.classification}, decision=${guard.decision}): ${guard.injection_flags.join(", ") || "n/a"}`,
+        warnings: guard.reasons.join("; ").slice(0, 500) || null,
+      });
+    }
     return reply.send({
       ok: true,
       resume,
@@ -1000,17 +1114,34 @@ export function registerRoutes(
         mime: extracted.mime ?? null,
         bytes: extracted.bytes ?? null,
       },
-      velum: { reviewed: true, redacted: velumResult.redacted, fields_redacted: velumResult.fields_redacted },
+      velum: {
+        reviewed: true,
+        redacted: velumResult.redacted,
+        fields_redacted: velumResult.fields_redacted,
+        injection_detected: guard.injection_detected,
+        injection_flags: guard.injection_flags,
+        injection_decision: guard.decision,
+      },
     });
   });
 
-  // Resume tailoring — uses the provider to tailor a resume for a specific role
-  server.post<{ Params: { id: string }; Body: { target_role: string; instructions?: string } }>(
+  // Resume tailoring — uses the provider to tailor a resume for a specific role.
+  // The result is now PERSISTED as a toba_resume_versions row (tailoring history)
+  // so it survives a refresh and can be diffed against the base resume. When the
+  // optional mad-ptah bridge is on, the tailored text is QA-reviewed and the
+  // findings are attached to the version row.
+  server.post<{ Params: { id: string }; Body: { target_role: string; instructions?: string; application_id?: string } }>(
     "/toba/resumes/:id/tailor", async (req, reply) => {
       const resume = v2.getResume(req.params.id);
       if (!resume) return reply.status(404).send({ ok: false, error: "Resume not found" });
-      const { target_role, instructions } = req.body ?? {};
+      const { target_role, instructions, application_id } = req.body ?? {};
       if (!target_role) return reply.status(400).send({ ok: false, error: "target_role required" });
+
+      // Validate the application link if provided (so versions answer "which
+      // resume did I send to Acme?").
+      if (application_id && !v2.getApplication(application_id)) {
+        return reply.status(400).send({ ok: false, error: `Application not found: ${application_id}` });
+      }
 
       const profile = v1.getProfile();
       const profileContext = profile?.summary ? `Candidate summary: ${profile.summary}\n` : "";
@@ -1032,17 +1163,94 @@ export function registerRoutes(
           messages: [{ role: "user", content: tailorPrompt }],
           max_tokens: 4096,
         });
+
+        // Velum-review the tailored output (defensive: the model may echo PII).
+        const velumResult = TobaV2DB.velumReview(result.content, "resume");
+
+        // Optional mad-ptah pre-send QA gate on the tailored resume.
+        let qaFindings: PtahFinding[] = [];
+        const ptah = await reviewWithPtah("resume", velumResult.output, { target_role, ...(instructions ? { instructions } : {}) });
+        if (ptah?.reviewed) {
+          qaFindings = ptah.findings;
+          v2.createReceipt({
+            action: "ptah_review",
+            result_summary: `Ptah resume QA for "${target_role}": ${qaFindings.length} finding(s)`,
+          });
+        }
+
+        const version = v2.createResumeVersion({
+          parent_resume_id: resume.id,
+          target_role,
+          application_id: application_id ?? null,
+          tailored_text: velumResult.output,
+          instructions: instructions ?? null,
+          velum_fields_redacted: velumResult.fields_redacted,
+          qa_findings: qaFindings.length > 0 ? qaFindings : null,
+          provider: result.provider,
+          model: result.model,
+        });
+
+        v2.createReceipt({
+          action: "resume_tailor",
+          provider: result.provider,
+          model: result.model,
+          local_mode: result.local,
+          velum_reviewed: true,
+          velum_redacted: velumResult.redacted,
+          result_summary: `Tailored resume ${resume.id} for "${target_role}" → version ${version.id}${application_id ? ` (linked to application ${application_id})` : ""}`,
+        });
+
         return reply.send({
           ok: true,
           original: resume.base_resume,
-          tailored: result.content,
+          tailored: velumResult.output,
           target_role,
+          version,
+          qa_findings: qaFindings,
+          ptah_enabled: ptahEnabled(),
+          velum: { reviewed: true, redacted: velumResult.redacted, fields_redacted: velumResult.fields_redacted },
           usage: result.usage ?? null,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return reply.status(502).send({ ok: false, error: `Tailoring failed: ${msg}` });
       }
+    }
+  );
+
+  // List the tailoring history for a base resume (newest first).
+  server.get<{ Params: { id: string } }>("/toba/resumes/:id/versions", async (req, reply) => {
+    const resume = v2.getResume(req.params.id);
+    if (!resume) return reply.status(404).send({ ok: false, error: "Resume not found" });
+    const versions = v2.listResumeVersions(resume.id).map(v => ({
+      ...v,
+      velum_fields_redacted: v.velum_fields_redacted ? JSON.parse(v.velum_fields_redacted) : [],
+      qa_findings: v.qa_findings ? JSON.parse(v.qa_findings) : [],
+    }));
+    return reply.send({ ok: true, base_resume: resume.base_resume, resume_id: resume.id, versions });
+  });
+
+  // Promote a tailored version into a brand-new base resume.
+  server.post<{ Params: { id: string; versionId: string } }>(
+    "/toba/resumes/:id/versions/:versionId/promote", async (req, reply) => {
+      const resume = v2.getResume(req.params.id);
+      if (!resume) return reply.status(404).send({ ok: false, error: "Resume not found" });
+      const version = v2.getResumeVersion(req.params.versionId);
+      if (!version || version.parent_resume_id !== resume.id) {
+        return reply.status(404).send({ ok: false, error: "Resume version not found" });
+      }
+      const promoted = v2.createResume(version.tailored_text, resume.profile_version ?? undefined, version.target_role, {
+        source: "promoted_version",
+        summary: makeResumeSummary(version.tailored_text),
+        velum_reviewed: 1,
+        velum_redacted: 0,
+        velum_fields_redacted: version.velum_fields_redacted,
+      });
+      v2.createReceipt({
+        action: "resume_promote",
+        result_summary: `Promoted version ${version.id} (tailored for "${version.target_role}") to new base resume ${promoted.id}`,
+      });
+      return reply.send({ ok: true, resume: promoted, promoted_from: version.id });
     }
   );
 
@@ -1072,14 +1280,34 @@ export function registerRoutes(
     const { type, subject, body: bodyText } = req.body ?? {};
     if (!type || !subject || !bodyText) return reply.status(400).send({ ok: false, error: "type, subject, and body required" });
     const velumResult = TobaV2DB.velumReview(bodyText, "outreach");
-    const outreach = v2.stageOutreach({ ...req.body, body: velumResult.output } as any);
+    let outreach = v2.stageOutreach({ ...req.body, body: velumResult.output } as any);
+
+    // Optional mad-ptah pre-send QA gate. Findings are attached to the row and
+    // shown as inline warnings on the approve screen. Bridge off → no-op.
+    let qaFindings: PtahFinding[] = [];
+    const ptah = await reviewWithPtah("outreach", velumResult.output, { type, subject });
+    if (ptah?.reviewed) {
+      qaFindings = ptah.findings;
+      outreach = v2.setOutreachQaFindings(outreach.id, qaFindings) ?? outreach;
+      v2.createReceipt({
+        action: "ptah_review",
+        result_summary: `Ptah outreach QA for "${subject}": ${qaFindings.length} finding(s)`,
+      });
+    }
+
     v2.createReceipt({
       action: "outreach_generate",
       velum_reviewed: true,
       velum_redacted: velumResult.redacted,
-      result_summary: `Staged ${type}: "${subject}" (velum: ${velumResult.fields_redacted.length} redacted)`,
+      result_summary: `Staged ${type}: "${subject}" (velum: ${velumResult.fields_redacted.length} redacted${qaFindings.length ? `, ptah: ${qaFindings.length} flags` : ""})`,
     });
-    return reply.send({ ok: true, outreach, velum: { reviewed: true, redacted: velumResult.redacted, fields_redacted: velumResult.fields_redacted } });
+    return reply.send({
+      ok: true,
+      outreach,
+      qa_findings: qaFindings,
+      ptah_enabled: ptahEnabled(),
+      velum: { reviewed: true, redacted: velumResult.redacted, fields_redacted: velumResult.fields_redacted },
+    });
   });
 
   server.post<{ Params: { id: string } }>("/toba/outreach/:id/approve", async (req, reply) => {
@@ -1902,6 +2130,173 @@ export function registerRoutes(
     });
   });
 
+  // ── Self-driving Job Scout: search + extract + score via the analyst ──────
+  // Closes the loop the old hard-coded `live_search_implemented: false` left
+  // open. Uses the job-scout-analyst tool-chat (web_search + web_extract) over
+  // each active lane's ready-made search_queries, screens extracted postings for
+  // prompt-injection (velum guardContext), and — per the no-auto-submission data
+  // contract — STAGES discovered jobs as toba_automation tasks for approval when
+  // TOBA_AUTOMATION_MODE=approval-required (the default). In other modes it feeds
+  // results straight into the dedup-aware ingest path.
+  server.post<{ Body: { lane_ids?: string[]; max_jobs_per_lane?: number } }>("/toba/job-scout/run", async (req, reply) => {
+    const activeCampaign = v2.getActiveCampaign();
+    if (!activeCampaign) {
+      return reply.status(400).send({ ok: false, error: "No active campaign — create one before running the scout." });
+    }
+
+    const agent = v2.getPehAgent("job-scout-analyst");
+    if (!agent || agent.enabled !== 1) {
+      return reply.status(400).send({ ok: false, error: "job-scout-analyst agent is missing or disabled." });
+    }
+
+    // Resolve which lanes to scan first — nothing to scout short-circuits before
+    // we worry about provider capabilities.
+    let lanes = v2.getActiveSearchLanes(activeCampaign.id);
+    if (Array.isArray(req.body?.lane_ids) && req.body.lane_ids.length > 0) {
+      const wanted = new Set(req.body.lane_ids);
+      lanes = lanes.filter(l => wanted.has(l.id));
+    }
+    if (lanes.length === 0) {
+      return reply.send({ ok: true, ran: false, reason: "no_lanes", discovered: 0, staged: 0, ingested: 0,
+        message: "No active search lanes to scout. Create a lane first." });
+    }
+
+    const eff = effectiveAgentConfig(agent);
+    if (!providerSupportsTools(eff.cfg.provider)) {
+      return reply.status(422).send({
+        ok: false,
+        ran: false,
+        reason: "provider_no_tools",
+        error: `The job-scout-analyst provider "${eff.cfg.provider}" does not support tool calling. Configure a tool-capable provider (e.g. openai, openrouter) for live search.`,
+      });
+    }
+
+    const maxPerLane = Math.min(10, Math.max(1, Number(req.body?.max_jobs_per_lane) || 5));
+    const tools = getToolsForAgent("job-scout-analyst");
+    const profile = v1.getProfile();
+    const profileBlurb = [profile?.title, profile?.summary, profile?.skills].filter(Boolean).join(" · ").slice(0, 600);
+
+    const discovered: Array<Record<string, unknown>> = [];
+    const injectionFlagged: string[] = [];
+    const laneErrors: Array<{ lane: string; error: string }> = [];
+
+    for (const lane of lanes) {
+      const titles = JSON.parse(lane.target_titles || "[]") as string[];
+      const keywords = JSON.parse(lane.keywords || "[]") as string[];
+      const locs = JSON.parse(lane.locations || "[]") as string[];
+      const queries = titles.flatMap(t => {
+        const q = [`${t} ${keywords.join(" ")}`.trim()];
+        for (const loc of locs.length > 0 ? locs : ["remote"]) q.push(`${t} ${loc}`.trim());
+        return q;
+      }).slice(0, 6);
+
+      const sys = `${agent.system_prompt ?? "You analyze job postings for fit and legitimacy."}\n\n` +
+        `Use web_search (detailed=true) and web_extract to find REAL, currently-open job postings for the lane below. ` +
+        `Score each posting 0-100 for fit against the candidate, and grade legitimacy. ` +
+        `Return ONLY a JSON array (no prose) of at most ${maxPerLane} objects with keys: ` +
+        `company, role, url, salary_range, match_score (0-100), match_reason, location, remote, posting_excerpt. ` +
+        `posting_excerpt must be a short verbatim snippet of the posting text you extracted.`;
+      const user = `Candidate: ${profileBlurb || "(profile sparse)"}\n` +
+        `Lane "${lane.name}" (${lane.priority}). Target titles: ${titles.join(", ") || "n/a"}. ` +
+        `Keywords: ${keywords.join(", ") || "n/a"}. Locations: ${locs.join(", ") || "remote"}.\n` +
+        `Search queries to try: ${queries.join(" | ")}`;
+
+      try {
+        const result = await toolChat({
+          messages: [{ role: "system", content: sys }, { role: "user", content: user }],
+          tools,
+          max_tokens: 3000,
+        }, eff.cfg);
+
+        const jobs = parseJobsFromModel(result.content);
+        for (const job of jobs.slice(0, maxPerLane)) {
+          // ── Injection defense on the extracted posting content ──
+          const screenText = `${job.role ?? ""} ${job.company ?? ""} ${job.match_reason ?? ""} ${job.posting_excerpt ?? ""}`.trim();
+          const guard = guardContext(screenText, "tool");
+          const flags = guard.injection_detected ? guard.injection_flags : [];
+          if (guard.injection_detected) {
+            injectionFlagged.push(`${job.company ?? "?"} — ${job.role ?? "?"}`);
+            v2.createReceipt({
+              action: "velum_injection_flag",
+              campaign_id: activeCampaign.id,
+              result_summary: `Job posting "${job.company ?? "?"} — ${job.role ?? "?"}" flagged for prompt-injection (${guard.classification}): ${flags.join(", ") || "n/a"}`,
+              warnings: guard.reasons.join("; ").slice(0, 500) || null,
+            });
+          }
+          discovered.push({ ...job, lane_id: lane.id, lane_name: lane.name, injection_flags: flags });
+        }
+      } catch (err) {
+        laneErrors.push({ lane: lane.name, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    const provStatus = getProviderStatus();
+    // Dedup against existing pipeline.
+    const fresh = discovered.filter(j => {
+      const company = String(j.company ?? "").trim();
+      const role = String(j.role ?? "").trim();
+      if (!company || !role) return false;
+      const fp = TobaV2DB.jobFingerprint(company, role, j.url ? String(j.url) : undefined);
+      return !v2.hasFingerprint(fp);
+    });
+
+    const approvalRequired = TOBA_AUTOMATION_MODE === "approval-required";
+    let stagedTasks: unknown[] = [];
+    let ingested: unknown[] = [];
+
+    if (approvalRequired) {
+      // Stage each discovered job as an approval task — never auto-create an
+      // application (respects the no-auto-submission data contract).
+      stagedTasks = fresh.map(j => v2.createAutomationTask({
+        kind: "job_scout",
+        title: `Review discovered job: ${j.company} — ${j.role}`,
+        detail: JSON.stringify({ ...j, campaign_id: activeCampaign.id }),
+        campaign_id: activeCampaign.id,
+      }));
+    } else {
+      ingested = fresh.map(j => v2.createApplication({
+        campaign_id: activeCampaign.id,
+        company: String(j.company),
+        role: String(j.role),
+        url: j.url ? String(j.url) : undefined,
+        salary_range: j.salary_range ? String(j.salary_range) : undefined,
+        match_score: typeof j.match_score === "number" ? j.match_score : undefined,
+        notes: j.match_reason ? `Match: ${j.match_reason}` : undefined,
+        source: "job_scout_run",
+        location: j.location ? String(j.location) : undefined,
+        remote: j.remote ? String(j.remote) : undefined,
+        lane_id: String(j.lane_id),
+      }));
+    }
+
+    v2.createReceipt({
+      action: "job_scout_run",
+      campaign_id: activeCampaign.id,
+      provider: provStatus.provider,
+      model: provStatus.model,
+      local_mode: provStatus.local,
+      result_summary: `Job Scout run over ${lanes.length} lane(s): ${discovered.length} discovered, ${fresh.length} fresh, ${approvalRequired ? `${stagedTasks.length} staged for approval` : `${ingested.length} ingested`}${injectionFlagged.length ? `, ${injectionFlagged.length} injection-flagged` : ""}.`,
+      warnings: laneErrors.length ? laneErrors.map(e => `${e.lane}: ${e.error}`).join("; ").slice(0, 500) : null,
+    });
+
+    return reply.send({
+      ok: true,
+      ran: true,
+      automation_mode: TOBA_AUTOMATION_MODE,
+      campaign_id: activeCampaign.id,
+      lanes_scanned: lanes.length,
+      discovered: discovered.length,
+      fresh: fresh.length,
+      duplicates_skipped: discovered.length - fresh.length,
+      injection_flagged: injectionFlagged,
+      lane_errors: laneErrors,
+      staged: approvalRequired ? stagedTasks.length : 0,
+      ingested: approvalRequired ? 0 : ingested.length,
+      staged_tasks: approvalRequired ? stagedTasks : [],
+      applications: approvalRequired ? [] : ingested,
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Search Lanes
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2111,7 +2506,7 @@ export function registerRoutes(
   });
 
   // ── Tool info for agents ─────────────────────────────────────────────────
-  server.get("/toba/peh/agents/:id/tools", async (req, reply) => {
+  server.get<{ Params: { id: string } }>("/toba/peh/agents/:id/tools", async (req, reply) => {
     const agent = v2.getPehAgent(req.params.id);
     if (!agent) return reply.status(404).send({ ok: false, error: `Peh agent not found: ${req.params.id}` });
     const tools = getToolsForAgent(agent.id);

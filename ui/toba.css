@@ -726,3 +726,57 @@ button{font-family:inherit}
   .peh-onboard-overlay{transition-duration:.01ms}
   .peh-onboard-card{animation:none}
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   BATCH 2 · Interactive setup quest (TOBA-5) + resume diff (TOBA-1)
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Setup quest overlay ─────────────────────────────────────────────── */
+.peh-quest-overlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;opacity:0;transition:opacity .3s ease}
+.peh-quest-overlay.visible{display:flex;opacity:1}
+.peh-quest-backdrop{position:absolute;inset:0;background:rgba(8,5,2,.72);backdrop-filter:blur(3px)}
+.peh-quest-card{position:relative;width:min(560px,92vw);max-height:88vh;overflow:auto;background:var(--bg-card-bright,#322614);border:1px solid var(--border-bright,rgba(217,119,6,.42));border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.55);padding:20px}
+.peh-quest-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.peh-quest-img{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--orange,#f59e0b)}
+.peh-quest-title{margin:0;font-size:1.15rem;color:var(--orange-hot,#fbbf24)}
+.peh-quest-sub{margin:2px 0 0;font-size:.82rem;color:#cbb48d;opacity:.85}
+.peh-quest-close{margin-left:auto;background:transparent;border:none;color:#cbb48d;font-size:1.6rem;line-height:1;cursor:pointer}
+.peh-quest-close:hover{color:#fff}
+.peh-quest-progress{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.peh-quest-progress .peh-quest-bar{height:8px;background:linear-gradient(90deg,var(--amber,#d97706),var(--orange-hot,#fbbf24));border-radius:6px;flex:1;min-width:0;transition:width .4s ease}
+.peh-quest-progress{position:relative;background:rgba(0,0,0,.25);border-radius:6px;padding:4px 10px}
+.peh-quest-count{font-size:.8rem;color:#e8d3a6;white-space:nowrap}
+.peh-quest-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.peh-quest-step{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--border-subtle,rgba(217,119,6,.16));border-radius:12px;background:var(--bg-card,rgba(30,22,12,.78))}
+.peh-quest-step.done{border-color:var(--success,#34d399);background:rgba(52,211,153,.08)}
+.peh-quest-step.alldone{border-color:var(--orange-hot,#fbbf24);background:rgba(251,191,36,.1)}
+.peh-quest-mark{font-size:1.2rem;width:1.4rem;text-align:center;color:#cbb48d}
+.peh-quest-step.done .peh-quest-mark{color:var(--success,#34d399)}
+.peh-quest-body{flex:1;min-width:0}
+.peh-quest-steptitle{font-weight:600;color:#f3e2bf}
+.peh-quest-loc{font-size:.74rem;color:var(--orange,#f59e0b);text-transform:uppercase;letter-spacing:.04em;margin:1px 0 4px}
+.peh-quest-desc{font-size:.82rem;color:#cbb48d;line-height:1.4}
+.peh-quest-act{display:flex;align-items:center}
+.peh-quest-go{background:var(--amber,#d97706);color:#1a1208;border:none;border-radius:8px;padding:7px 12px;font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.peh-quest-go:hover{background:var(--orange-hot,#fbbf24)}
+.peh-quest-badge{font-size:.74rem;color:var(--success,#34d399);font-weight:600}
+.peh-quest-foot{margin-top:14px;display:flex;justify-content:flex-end}
+.peh-quest-refresh{background:transparent;border:1px solid var(--border-medium,rgba(217,119,6,.28));color:#e8d3a6;border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer}
+.peh-quest-refresh:hover{border-color:var(--orange,#f59e0b)}
+.peh-quest-loading{color:#cbb48d;font-size:.85rem;list-style:none;padding:12px}
+
+/* ── Resume tailoring diff (Fire Processing) ─────────────────────────── */
+.toba-diff{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.toba-diff-col h4{margin:0 0 6px;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--orange,#f59e0b)}
+.toba-diff-pane{background:rgba(0,0,0,.25);border:1px solid var(--border-subtle,rgba(217,119,6,.16));border-radius:10px;padding:10px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto}
+.toba-diff-add{background:rgba(52,211,153,.22);color:#bdf5dc;border-radius:3px}
+.toba-diff-del{background:rgba(239,68,68,.22);color:#f7c5c5;border-radius:3px;text-decoration:line-through}
+.toba-diff-chg{background:rgba(217,119,6,.26);color:#f8dca0;border-radius:3px}
+.toba-qa{margin-top:12px;border-top:1px dashed var(--border-medium,rgba(217,119,6,.28));padding-top:10px}
+.toba-qa-finding{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-size:.84rem}
+.toba-qa-finding.critical{color:#f7c5c5}
+.toba-qa-finding.warning{color:#f8dca0}
+.toba-qa-finding.info{color:#cbb48d}
+.toba-qa-dot{font-size:.7rem;margin-top:.2rem}
+@media (max-width:640px){.toba-diff{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.peh-quest-overlay{transition-duration:.01ms}}
