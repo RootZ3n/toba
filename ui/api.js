@@ -87,6 +87,14 @@
     outreach: (status) => get('/toba/outreach' + (status ? '?status=' + q(status) : '')),
     stageOutreach: (body) => post('/toba/outreach/stage', body),
 
+    // Tracker Applications (Job Command Center)
+    trackerApps: (status) =>
+      get('/toba/tracker/applications' + (status ? '?status=' + q(status) : '')),
+    trackerApp: (id) => get('/toba/tracker/applications/' + q(id)),
+    createTrackerApp: (body) => post('/toba/tracker/applications', body),
+    updateTrackerApp: (id, changes) => patch('/toba/tracker/applications/' + q(id), changes),
+    deleteTrackerApp: (id) => del('/toba/tracker/applications/' + q(id)),
+
     // Self-driving Job Scout (Batch 2 · TOBA-2)
     jobScoutRun: (body) => post('/toba/job-scout/run', body || {}),
 

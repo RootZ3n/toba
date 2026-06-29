@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Command Center · Toba</title>
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   TOBA · JOB COMMAND CENTER
+   Dark theme, functional dashboard. No world-engine fluff — this is
+   the actual control room for Jeffrey Miller's job search.
+   ══════════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-0:#0c0a14;--bg-1:#141020;--bg-2:#1c1730;--bg-3:#241e3a;
+  --accent:#d97706;--accent2:#7c3aed;--accent3:#06b6d4;
+  --text:#e8e0f0;--text-dim:#9a8fb8;--text-muted:#6b5f82;
+  --border:rgba(124,58,237,.25);--border-dim:rgba(124,58,237,.12);
+  --green:#3fb950;--yellow:#d29922;--red:#f85149;--blue:#58a6ff;--cyan:#06b6d4;
+  --radius:10px;--radius-sm:6px;
+}
+html,body{height:100%;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg-0);color:var(--text);overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+input,textarea,select{font-family:inherit;background:var(--bg-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;outline:none;transition:border-color .2s}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+textarea{resize:vertical;min-height:80px}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── Layout ──────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-rows:52px 1fr;height:100vh;overflow:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--bg-1);border-bottom:1px solid var(--border-dim);gap:16px}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.topbar-brand{font-weight:800;font-size:15px;color:var(--accent);letter-spacing:.04em}
+.topbar-brand span{color:var(--text-dim);font-weight:400;margin-left:6px}
+.topbar-campaign{font-size:12px;color:var(--text-dim);background:var(--bg-2);padding:4px 10px;border-radius:999px;border:1px solid var(--border-dim)}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.topbar-stat{text-align:center;padding:2px 12px}
+.topbar-stat b{display:block;font-size:16px;color:var(--accent)}.topbar-stat i{font-style:normal;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}.dot.ok{background:var(--green);box-shadow:0 0 6px rgba(63,185,80,.6)}.dot.warn{background:var(--yellow)}.dot.off{background:var(--red)}
+
+.main{display:grid;grid-template-columns:320px 1fr 340px;grid-template-rows:1fr auto;overflow:hidden}
+
+/* ── Left Panel: Job List ─────────────────────────────────────────────── */
+.panel-jobs{grid-row:1/3;background:var(--bg-1);border-right:1px solid var(--border-dim);display:flex;flex-direction:column;overflow:hidden}
+.panel-header{padding:14px 16px;border-bottom:1px solid var(--border-dim);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.panel-header h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim)}
+.panel-header button{background:var(--accent);color:#000;border:0;border-radius:var(--radius-sm);padding:5px 12px;font-size:12px;font-weight:700}
+.panel-header button:hover{filter:brightness(1.15)}
+
+.search-bar{padding:10px 16px;border-bottom:1px solid var(--border-dim);flex-shrink:0}
+.search-bar input{width:100%;padding:7px 10px;font-size:12px}
+
+.filter-row{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid var(--border-dim);flex-shrink:0;flex-wrap:wrap}
+.filter-btn{background:var(--bg-2);border:1px solid var(--border-dim);color:var(--text-dim);border-radius:999px;padding:3px 10px;font-size:11px;transition:all .2s}
+.filter-btn.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+.filter-btn:hover:not(.active){border-color:var(--accent);color:var(--text)}
+
+.job-list{flex:1;overflow-y:auto;padding:8px}
+.job-card{background:var(--bg-2);border:1px solid var(--border-dim);border-radius:var(--radius);padding:12px 14px;margin-bottom:6px;cursor:pointer;transition:all .2s;position:relative}
+.job-card:hover{border-color:var(--accent);transform:translateX(2px)}
+.job-card.selected{border-color:var(--accent);background:rgba(217,119,6,.08);box-shadow:0 0 20px rgba(217,119,6,.1)}
+.job-card-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.job-card-company{font-weight:700;font-size:14px;line-height:1.3}.job-card-position{font-size:12px;color:var(--text-dim);margin-top:2px}
+.job-card-meta{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.badge-saved{background:rgba(88,166,255,.12);color:var(--blue);border:1px solid rgba(88,166,255,.25)}
+.badge-applied{background:rgba(63,185,80,.12);color:var(--green);border:1px solid rgba(63,185,80,.25)}
+.badge-interviewing{background:rgba(217,119,6,.12);color:var(--accent);border:1px solid rgba(217,119,6,.25)}
+.badge-offer{background:rgba(124,58,237,.15);color:var(--accent2);border:1px solid rgba(124,58,237,.3)}
+.badge-rejected{background:rgba(248,81,73,.1);color:var(--red);border:1px solid rgba(248,81,73,.2)}
+.badge-ghosted{background:rgba(107,95,130,.12);color:var(--text-muted);border:1px solid rgba(107,95,130,.2)}
+.badge-grade{background:rgba(6,182,212,.1);color:var(--cyan);border:1px solid rgba(6,182,212,.2)}
+.badge-followup{background:rgba(210,153,34,.12);color:var(--yellow);border:1px solid rgba(210,153,34,.25)}
+.job-card-notes{font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Center Panel: Job Detail ─────────────────────────────────────────── */
+.panel-detail{grid-row:1/2;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-0)}
+.detail-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);gap:12px}
+.detail-empty svg{width:48px;height:48px;opacity:.3}
+.detail-empty p{font-size:14px}
+.detail-header{padding:20px 24px;border-bottom:1px solid var(--border-dim);flex-shrink:0}
+.detail-header h1{font-size:22px;font-weight:800;margin-bottom:4px}
+.detail-header .company{color:var(--accent);font-size:14px;font-weight:600}
+.detail-header .meta{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.detail-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;border:1px solid transparent;transition:all .2s}
+.btn-apply{background:var(--green);color:#000;border-color:var(--green)}.btn-apply:hover{filter:brightness(1.15);box-shadow:0 0 16px rgba(63,185,80,.3)}
+.btn-save{background:transparent;color:var(--blue);border-color:var(--blue)}.btn-save:hover{background:rgba(88,166,255,.1)}
+.btn-draft{background:transparent;color:var(--accent);border-color:var(--accent)}.btn-draft:hover{background:rgba(217,119,6,.1)}
+.btn-status{background:transparent;color:var(--accent2);border-color:var(--accent2)}.btn-status:hover{background:rgba(124,58,237,.1)}
+.btn-danger{background:transparent;color:var(--red);border-color:var(--red)}.btn-danger:hover{background:rgba(248,81,73,.1)}
+
+.detail-body{flex:1;overflow-y:auto;padding:20px 24px}
+.detail-section{margin-bottom:24px}
+.detail-section h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.detail-section h3 svg{width:14px;height:14px;opacity:.5}
+.detail-field{margin-bottom:12px}
+.detail-field label{display:block;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.detail-field .value{font-size:13px;line-height:1.5}
+.detail-notes{width:100%;min-height:100px;font-size:13px;line-height:1.5}
+
+/* ── Status Selector Dropdown ─────────────────────────────────────────── */
+.status-select{position:relative;display:inline-block}
+.status-select select{appearance:none;padding:5px 28px 5px 10px;font-size:12px;font-weight:600;border-radius:999px;cursor:pointer}
+.status-select::after{content:'▾';position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:10px;color:var(--text-dim)}
+
+/* ── Right Panel: Pipeline + Drafting ─────────────────────────────────── */
+.panel-pipeline{grid-row:1/3;background:var(--bg-1);border-left:1px solid var(--border-dim);display:flex;flex-direction:column;overflow:hidden}
+.pipeline-tabs{display:flex;border-bottom:1px solid var(--border-dim);flex-shrink:0}
+.pipeline-tab{flex:1;padding:10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+.pipeline-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.pipeline-tab:hover:not(.active){color:var(--text)}
+.pipeline-content{flex:1;overflow-y:auto;padding:14px}
+
+/* Pipeline View */
+.pipeline-stage{margin-bottom:16px}
+.pipeline-stage-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pipeline-stage-dot{width:10px;height:10px;border-radius:50%}
+.pipeline-stage-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.pipeline-stage-count{font-size:10px;color:var(--text-muted);background:var(--bg-2);padding:1px 6px;border-radius:999px}
+.pipeline-item{background:var(--bg-2);border:1px solid var(--border-dim);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:4px;font-size:12px;cursor:pointer;transition:all .2s}
+.pipeline-item:hover{border-color:var(--accent)}
+.pipeline-item-company{font-weight:600}.pipeline-item-position{color:var(--text-dim);font-size:11px}
+.pipeline-item-date{font-size:10px;color:var(--text-muted);margin-top:3px}
+
+/* Drafting Panel */
+.draft-panel{display:none;flex-direction:column;height:100%}
+.draft-panel.active{display:flex}
+.draft-type-tabs{display:flex;gap:4px;margin-bottom:12px}
+.draft-type-tab{padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600;background:var(--bg-2);border:1px solid var(--border-dim);color:var(--text-dim);cursor:pointer;transition:all .2s}
+.draft-type-tab.active{background:var(--accent);color:#000;border-color:var(--accent)}
+.draft-editor{flex:1;display:flex;flex-direction:column;gap:10px}
+.draft-editor textarea{flex:1;min-height:200px;font-size:13px;line-height:1.6}
+.draft-actions{display:flex;gap:8px;flex-shrink:0}
+.draft-ai-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0;border-radius:var(--radius-sm);padding:8px 16px;font-size:12px;font-weight:700;transition:all .2s}
+.draft-ai-btn:hover{filter:brightness(1.15);box-shadow:0 0 20px rgba(124,58,237,.3)}
+.draft-ai-btn:disabled{opacity:.5;cursor:default;filter:none;box:none}
+.draft-save-btn{background:var(--green);color:#000;border:0;border-radius:var(--radius-sm);padding:8px 16px;font-size:12px;font-weight:700}
+.draft-history{margin-top:12px;border-top:1px solid var(--border-dim);padding-top:10px}
+.draft-history h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px}
+.draft-history-item{background:var(--bg-2);border:1px solid var(--border-dim);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:4px;font-size:12px;cursor:pointer}
+.draft-history-item:hover{border-color:var(--accent)}
+.draft-history-item .draft-preview{color:var(--text-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+
+/* ── Add Job Modal ────────────────────────────────────────────────────── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:min(500px,90vw);max-height:80vh;overflow-y:auto}
+.modal h2{font-size:16px;margin-bottom:16px;color:var(--accent)}
+.modal .form-row{margin-bottom:12px}
+.modal .form-row label{display:block;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.modal .form-row input,.modal .form-row textarea,.modal .form-row select{width:100%}
+.modal .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* ── Toast ────────────────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 20px;font-size:13px;z-index:10001;transition:transform .3s ease;pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.success{border-color:var(--green);color:var(--green)}
+.toast.error{border-color:var(--red);color:var(--red)}
+
+/* ── Responsive ───────────────────────────────────────────────────────── */
+@media(max-width:1024px){.main{grid-template-columns:280px 1fr 0}.panel-pipeline{display:none}}
+@media(max-width:768px){.main{grid-template-columns:1fr}.panel-jobs{display:none}.panel-detail{grid-column:1}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ── Top Bar ────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-brand">TOBA <span>Job Command Center</span></div>
+      <div class="topbar-campaign" id="campaign-name">Loading...</div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-stat"><b id="stat-total">0</b><i>Total</i></div>
+      <div class="topbar-stat"><b id="stat-applied">0</b><i>Applied</i></div>
+      <div class="topbar-stat"><b id="stat-followup">0</b><i>Follow-ups</i></div>
+      <div class="topbar-stat"><b id="stat-interviewing">0</b><i>Interviews</i></div>
+      <span class="dot ok" id="server-dot" title="Server status"></span>
+    </div>
+  </header>
+
+  <!-- ── Main Grid ──────────────────────────────────────────────────── -->
+  <div class="main">
+    <!-- Left: Job List -->
+    <div class="panel-jobs">
+      <div class="panel-header">
+        <h2>Jobs</h2>
+        <button onclick="openAddModal()">+ Add Job</button>
+      </div>
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search companies, positions..." oninput="filterJobs()">
+      </div>
+      <div class="filter-row">
+        <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">All</button>
+        <button class="filter-btn" data-filter="saved" onclick="setFilter('saved',this)">Saved</button>
+        <button class="filter-btn" data-filter="applied" onclick="setFilter('applied',this)">Applied</button>
+        <button class="filter-btn" data-filter="interviewing" onclick="setFilter('interviewing',this)">Interviewing</button>
+        <button class="filter-btn" data-filter="followup" onclick="setFilter('followup',this)">Needs Follow-up</button>
+      </div>
+      <div class="job-list" id="job-list"></div>
+    </div>
+
+    <!-- Center: Job Detail -->
+    <div class="panel-detail" id="panel-detail">
+      <div class="detail-empty" id="detail-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M8 7h8M8 11h6M8 15h4"/></svg>
+        <p>Select a job to see details</p>
+      </div>
+      <div id="detail-content" style="display:none">
+        <div class="detail-header">
+          <h1 id="detail-position"></h1>
+          <div class="company" id="detail-company"></div>
+          <div class="meta">
+            <span class="badge" id="detail-status-badge"></span>
+            <span id="detail-url" style="font-size:12px"></span>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn-apply" id="btn-apply" onclick="applyToJob()">📧 Apply Now</button>
+            <button class="btn btn-draft" onclick="openDraftPanel('cover')">✍️ Cover Letter</button>
+            <button class="btn btn-draft" onclick="openDraftPanel('email')">✉️ Draft Email</button>
+            <div class="status-select">
+              <select id="detail-status-select" onchange="updateJobStatus()">
+                <option value="saved">Saved</option>
+                <option value="applied">Applied</option>
+                <option value="interviewing">Interviewing</option>
+                <option value="offer">Offer</option>
+                <option value="rejected">Rejected</option>
+                <option value="ghosted">Ghosted</option>
+              </select>
+            </div>
+            <button class="btn btn-danger" onclick="deleteJob()">🗑️</button>
+          </div>
+        </div>
+        <div class="detail-body">
+          <div class="detail-section">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              Timeline
+            </h3>
+            <div class="detail-field">
+              <label>Date Applied</label>
+              <div class="value" id="detail-date-applied">—</div>
+            </div>
+            <div class="detail-field">
+              <label>Follow-up Date</label>
+              <div class="value" id="detail-followup">—</div>
+            </div>
+          </div>
+          <div class="detail-section">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+              Notes
+            </h3>
+            <textarea class="detail-notes" id="detail-notes" placeholder="Add notes about this application..." onchange="saveNotes()"></textarea>
+          </div>
+          <div class="detail-section">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/></svg>
+              Resume
+            </h3>
+            <div class="detail-field">
+              <label>Available Resumes</label>
+              <div class="value" id="detail-resumes">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Pipeline + Drafting -->
+    <div class="panel-pipeline">
+      <div class="pipeline-tabs">
+        <div class="pipeline-tab active" onclick="switchRightTab('pipeline',this)">Pipeline</div>
+        <div class="pipeline-tab" onclick="switchRightTab('drafts',this)">Drafts</div>
+      </div>
+      <div class="pipeline-content">
+        <!-- Pipeline View -->
+        <div id="pipeline-view">
+          <div class="pipeline-stage" id="stage-saved">
+            <div class="pipeline-stage-header">
+              <div class="pipeline-stage-dot" style="background:var(--blue)"></div>
+              <span class="pipeline-stage-label">Saved</span>
+              <span class="pipeline-stage-count" id="count-saved">0</span>
+            </div>
+            <div id="pipe-saved"></div>
+          </div>
+          <div class="pipeline-stage" id="stage-applied">
+            <div class="pipeline-stage-header">
+              <div class="pipeline-stage-dot" style="background:var(--green)"></div>
+              <span class="pipeline-stage-label">Applied</span>
+              <span class="pipeline-stage-count" id="count-applied">0</span>
+            </div>
+            <div id="pipe-applied"></div>
+          </div>
+          <div class="pipeline-stage" id="stage-interviewing">
+            <div class="pipeline-stage-header">
+              <div class="pipeline-stage-dot" style="background:var(--accent)"></div>
+              <span class="pipeline-stage-label">Interviewing</span>
+              <span class="pipeline-stage-count" id="count-interviewing">0</span>
+            </div>
+            <div id="pipe-interviewing"></div>
+          </div>
+          <div class="pipeline-stage" id="stage-offer">
+            <div class="pipeline-stage-header">
+              <div class="pipeline-stage-dot" style="background:var(--accent2)"></div>
+              <span class="pipeline-stage-label">Offer</span>
+              <span class="pipeline-stage-count" id="count-offer">0</span>
+            </div>
+            <div id="pipe-offer"></div>
+          </div>
+          <div class="pipeline-stage" id="stage-rejected">
+            <div class="pipeline-stage-header">
+              <div class="pipeline-stage-dot" style="background:var(--red)"></div>
+              <span class="pipeline-stage-label">Rejected / Ghosted</span>
+              <span class="pipeline-stage-count" id="count-rejected">0</span>
+            </div>
+            <div id="pipe-rejected"></div>
+          </div>
+        </div>
+
+        <!-- Drafting View -->
+        <div id="drafts-view" style="display:none">
+          <div class="draft-panel active" id="draft-panel">
+            <div class="draft-type-tabs">
+              <div class="draft-type-tab active" onclick="switchDraftType('cover',this)">Cover Letter</div>
+              <div class="draft-type-tab" onclick="switchDraftType('email',this)">Email</div>
+              <div class="draft-type-tab" onclick="switchDraftType('linkedin',this)">LinkedIn DM</div>
+            </div>
+            <div class="draft-editor">
+              <div id="draft-target" style="font-size:12px;color:var(--text-dim);margin-bottom:4px">Select a job first to draft for it</div>
+              <textarea id="draft-text" placeholder="Write your cover letter, email, or LinkedIn message here...&#10;&#10;Or click 'AI Draft' to have the outreach-drafter agent generate one."></textarea>
+              <div class="draft-actions">
+                <button class="draft-ai-btn" id="btn-ai-draft" onclick="aiDraft()" disabled>🤖 AI Draft</button>
+                <button class="draft-save-btn" onclick="saveDraft()">💾 Save Draft</button>
+              </div>
+            </div>
+            <div class="draft-history">
+              <h4>Saved Drafts</h4>
+              <div id="draft-history-list">
+                <div style="font-size:12px;color:var(--text-muted)">No saved drafts yet.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Job Modal ────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+    <h2>Add Job</h2>
+    <div class="form-row">
+      <label>Company *</label>
+      <input type="text" id="add-company" placeholder="Company name">
+    </div>
+    <div class="form-row">
+      <label>Position *</label>
+      <input type="text" id="add-position" placeholder="Job title">
+    </div>
+    <div class="form-row">
+      <label>URL</label>
+      <input type="text" id="add-url" placeholder="https://...">
+    </div>
+    <div class="form-row">
+      <label>Status</label>
+      <select id="add-status">
+        <option value="saved">Saved</option>
+        <option value="applied">Applied</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Notes</label>
+      <textarea id="add-notes" placeholder="Salary, location, fit notes..."></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-save" onclick="closeAddModal()">Cancel</button>
+      <button class="btn btn-apply" onclick="addJob()">Add Job</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ────────────────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script src="api.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════════════
+// JOB COMMAND CENTER — Core Logic
+// ══════════════════════════════════════════════════════════════════════
+const API = window.TobaAPI;
+const esc = v => String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// ── State ───────────────────────────────────────────────────────────────
+let jobs = [];
+let selectedJob = null;
+let resumes = [];
+let currentFilter = 'all';
+let currentDraftType = 'cover';
+let drafts = JSON.parse(localStorage.getItem('toba-drafts') || '[]');
+
+// ── Load Data ───────────────────────────────────────────────────────────
+async function loadAll() {
+  const [tracker, resumeList, dash, health] = await Promise.all([
+    API.get('/toba/tracker/applications'),
+    API.resumes(),
+    API.dashboard(),
+    API.health()
+  ]);
+
+  if (tracker.ok) jobs = tracker.data.applications || [];
+  if (resumeList.ok) resumes = (resumeList.data.resumes || []);
+
+  // Campaign name
+  const campEl = document.getElementById('campaign-name');
+  if (dash.ok && dash.data.dashboard?.activeCampaign) {
+    campEl.textContent = dash.data.dashboard.activeCampaign.name;
+  } else {
+    campEl.textContent = 'No active campaign';
+  }
+
+  // Server dot
+  const dot = document.getElementById('server-dot');
+  if (health.ok && health.data.status === 'healthy') {
+    dot.className = 'dot ok';
+  } else {
+    dot.className = 'dot warn';
+  }
+
+  updateStats();
+  renderJobList();
+  renderPipeline();
+  renderDraftHistory();
+
+  // Auto-select first job if none selected
+  if (!selectedJob && jobs.length > 0) {
+    selectJob(jobs[0].id);
+  }
+}
+
+function updateStats() {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('stat-total').textContent = jobs.length;
+  document.getElementById('stat-applied').textContent = jobs.filter(j => j.status === 'applied').length;
+  document.getElementById('stat-followup').textContent = jobs.filter(j => j.follow_up_date && j.follow_up_date <= today && j.status !== 'rejected' && j.status !== 'ghosted').length;
+  document.getElementById('stat-interviewing').textContent = jobs.filter(j => j.status === 'interviewing').length;
+}
+
+// ── Job List ────────────────────────────────────────────────────────────
+function renderJobList() {
+  const container = document.getElementById('job-list');
+  const search = document.getElementById('search-input').value.toLowerCase();
+  const today = new Date().toISOString().slice(0, 10);
+
+  let filtered = jobs.filter(j => {
+    if (currentFilter === 'saved') return j.status === 'saved';
+    if (currentFilter === 'applied') return j.status === 'applied';
+    if (currentFilter === 'interviewing') return j.status === 'interviewing';
+    if (currentFilter === 'followup') return j.follow_up_date && j.follow_up_date <= today && j.status !== 'rejected' && j.status !== 'ghosted';
+    return true;
+  });
+
+  if (search) {
+    filtered = filtered.filter(j =>
+      (j.company||'').toLowerCase().includes(search) ||
+      (j.position||'').toLowerCase().includes(search) ||
+      (j.notes||'').toLowerCase().includes(search)
+    );
+  }
+
+  container.innerHTML = filtered.map(j => {
+    const isSelected = selectedJob && selectedJob.id === j.id;
+    const needsFollowup = j.follow_up_date && j.follow_up_date <= today && j.status !== 'rejected' && j.status !== 'ghosted';
+    return `<div class="job-card ${isSelected?'selected':''}" onclick="selectJob('${j.id}')">
+      <div class="job-card-header">
+        <div>
+          <div class="job-card-company">${esc(j.company)}</div>
+          <div class="job-card-position">${esc(j.position)}</div>
+        </div>
+      </div>
+      <div class="job-card-meta">
+        <span class="badge badge-${j.status}">${esc(j.status)}</span>
+        ${needsFollowup ? '<span class="badge badge-followup">⏰ Follow-up due</span>' : ''}
+        ${j.date_applied ? '<span class="badge badge-grade">Applied '+esc(j.date_applied)+'</span>' : ''}
+      </div>
+      ${j.notes ? '<div class="job-card-notes">'+esc(j.notes)+'</div>' : ''}
+    </div>`;
+  }).join('');
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px">No jobs match your filter.</div>';
+  }
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderJobList();
+}
+
+function filterJobs() { renderJobList(); }
+
+// ── Job Detail ──────────────────────────────────────────────────────────
+function selectJob(id) {
+  selectedJob = jobs.find(j => j.id === id) || null;
+  if (!selectedJob) return;
+
+  document.getElementById('detail-empty').style.display = 'none';
+  document.getElementById('detail-content').style.display = '';
+
+  document.getElementById('detail-position').textContent = selectedJob.position;
+  document.getElementById('detail-company').textContent = selectedJob.company;
+  document.getElementById('detail-status-badge').className = 'badge badge-' + selectedJob.status;
+  document.getElementById('detail-status-badge').textContent = selectedJob.status;
+  document.getElementById('detail-status-select').value = selectedJob.status;
+
+  const urlEl = document.getElementById('detail-url');
+  if (selectedJob.url) {
+    urlEl.innerHTML = '<a href="'+esc(selectedJob.url)+'" target="_blank" style="color:var(--accent);text-decoration:none">🔗 View Posting</a>';
+  } else {
+    urlEl.textContent = '';
+  }
+
+  document.getElementById('detail-date-applied').textContent = selectedJob.date_applied || 'Not yet applied';
+  document.getElementById('detail-followup').textContent = selectedJob.follow_up_date || 'None set';
+  document.getElementById('detail-notes').value = selectedJob.notes || '';
+
+  // Resumes
+  const resumeEl = document.getElementById('detail-resumes');
+  if (resumes.length) {
+    resumeEl.innerHTML = resumes.map(r =>
+      '<div style="margin-bottom:6px;padding:6px 8px;background:var(--bg-2);border-radius:var(--radius-sm);border:1px solid var(--border-dim);font-size:12px;cursor:pointer" onclick="selectResume(\''+r.id+'\')">'
+      + '<b>' + esc(r.tailored_for || 'Base Resume') + '</b>'
+      + '<div style="color:var(--text-dim);font-size:11px;margin-top:2px">' + (r.extracted_length||0) + ' chars · ' + esc(r.source||'text') + '</div>'
+      + '</div>'
+    ).join('');
+  } else {
+    resumeEl.textContent = 'No resumes uploaded.';
+  }
+
+  // Enable AI draft button
+  document.getElementById('btn-ai-draft').disabled = false;
+  document.getElementById('draft-target').textContent = 'Drafting for: ' + selectedJob.company + ' — ' + selectedJob.position;
+
+  renderJobList();
+}
+
+function selectResume(id) {
+  const r = resumes.find(r => r.id === id);
+  if (!r) return;
+  toast('Resume selected: ' + (r.tailored_for || 'Base Resume'), 'success');
+}
+
+// ── Apply ───────────────────────────────────────────────────────────────
+async function applyToJob() {
+  if (!selectedJob) return;
+
+  const btn = document.getElementById('btn-apply');
+  btn.disabled = true;
+  btn.textContent = '⏳ Applying...';
+
+  try {
+    // Update status to applied
+    const today = new Date().toISOString().slice(0, 10);
+    const followup = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10); // 5 days from now
+    const res = await API.patch('/toba/tracker/applications/' + selectedJob.id, {
+      status: 'applied',
+      date_applied: today,
+      follow_up_date: followup
+    });
+
+    if (res.ok) {
+      selectedJob = res.data.application;
+      const idx = jobs.findIndex(j => j.id === selectedJob.id);
+      if (idx >= 0) jobs[idx] = selectedJob;
+      updateStats();
+      renderJobList();
+      renderPipeline();
+      selectJob(selectedJob.id);
+      toast('✅ Marked as applied! Follow-up set for ' + followup, 'success');
+    } else {
+      toast('❌ Failed: ' + (res.error || 'Unknown error'), 'error');
+    }
+  } catch (e) {
+    toast('❌ Error: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '📧 Apply Now';
+}
+
+// ── Status Update ───────────────────────────────────────────────────────
+async function updateJobStatus() {
+  if (!selectedJob) return;
+  const newStatus = document.getElementById('detail-status-select').value;
+  const res = await API.patch('/toba/tracker/applications/' + selectedJob.id, { status: newStatus });
+  if (res.ok) {
+    selectedJob = res.data.application;
+    const idx = jobs.findIndex(j => j.id === selectedJob.id);
+    if (idx >= 0) jobs[idx] = selectedJob;
+    updateStats();
+    renderJobList();
+    renderPipeline();
+    selectJob(selectedJob.id);
+    toast('Status updated to ' + newStatus, 'success');
+  }
+}
+
+// ── Notes ───────────────────────────────────────────────────────────────
+let notesSaveTimer;
+function saveNotes() {
+  if (!selectedJob) return;
+  clearTimeout(notesSaveTimer);
+  notesSaveTimer = setTimeout(async () => {
+    const notes = document.getElementById('detail-notes').value;
+    await API.patch('/toba/tracker/applications/' + selectedJob.id, { notes });
+    selectedJob.notes = notes;
+    const idx = jobs.findIndex(j => j.id === selectedJob.id);
+    if (idx >= 0) jobs[idx].notes = notes;
+    renderJobList();
+  }, 800);
+}
+
+// ── Delete ──────────────────────────────────────────────────────────────
+async function deleteJob() {
+  if (!selectedJob) return;
+  if (!confirm('Delete ' + selectedJob.company + ' — ' + selectedJob.position + '?')) return;
+  const res = await API.del('/toba/tracker/applications/' + selectedJob.id);
+  if (res.ok) {
+    jobs = jobs.filter(j => j.id !== selectedJob.id);
+    selectedJob = null;
+    document.getElementById('detail-empty').style.display = '';
+    document.getElementById('detail-content').style.display = 'none';
+    updateStats();
+    renderJobList();
+    renderPipeline();
+    toast('Job deleted', 'success');
+  }
+}
+
+// ── Add Job Modal ───────────────────────────────────────────────────────
+function openAddModal() {
+  document.getElementById('add-modal').classList.add('show');
+  document.getElementById('add-company').focus();
+}
+function closeAddModal() {
+  document.getElementById('add-modal').classList.remove('show');
+  ['add-company','add-position','add-url','add-notes'].forEach(id => document.getElementById(id).value = '');
+}
+async function addJob() {
+  const company = document.getElementById('add-company').value.trim();
+  const position = document.getElementById('add-position').value.trim();
+  if (!company || !position) { toast('Company and position are required', 'error'); return; }
+  const body = {
+    company, position,
+    url: document.getElementById('add-url').value.trim() || undefined,
+    status: document.getElementById('add-status').value,
+    notes: document.getElementById('add-notes').value.trim() || undefined
+  };
+  const res = await API.post('/toba/tracker/applications', body);
+  if (res.ok) {
+    jobs.unshift(res.data.application);
+    closeAddModal();
+    updateStats();
+    renderJobList();
+    renderPipeline();
+    selectJob(res.data.application.id);
+    toast('Job added!', 'success');
+  } else {
+    toast('Failed: ' + (res.error || 'Unknown'), 'error');
+  }
+}
+
+// ── Pipeline View ───────────────────────────────────────────────────────
+function renderPipeline() {
+  const today = new Date().toISOString().slice(0, 10);
+  const groups = { saved:[], applied:[], interviewing:[], offer:[], rejected:[] };
+  jobs.forEach(j => {
+    if (j.status === 'ghosted' || j.status === 'rejected') groups.rejected.push(j);
+    else if (groups[j.status]) groups[j.status].push(j);
+    else groups.saved.push(j);
+  });
+
+  Object.entries(groups).forEach(([status, items]) => {
+    document.getElementById('count-' + status).textContent = items.length;
+    const container = document.getElementById('pipe-' + status);
+    container.innerHTML = items.map(j => {
+      const needsFollowup = j.follow_up_date && j.follow_up_date <= today && status !== 'rejected';
+      return `<div class="pipeline-item" onclick="selectJob('${j.id}')">
+        <div class="pipeline-item-company">${esc(j.company)}</div>
+        <div class="pipeline-item-position">${esc(j.position)}</div>
+        ${needsFollowup ? '<div class="pipeline-item-date" style="color:var(--yellow)">⏰ Follow-up: '+esc(j.follow_up_date)+'</div>' : ''}
+        ${j.date_applied ? '<div class="pipeline-item-date">Applied: '+esc(j.date_applied)+'</div>' : ''}
+      </div>`;
+    }).join('');
+  });
+}
+
+// ── Right Panel Tabs ────────────────────────────────────────────────────
+function switchRightTab(tab, btn) {
+  document.querySelectorAll('.pipeline-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pipeline-view').style.display = tab === 'pipeline' ? '' : 'none';
+  document.getElementById('drafts-view').style.display = tab === 'drafts' ? '' : 'none';
+}
+
+// ── Drafting ────────────────────────────────────────────────────────────
+function openDraftPanel(type) {
+  currentDraftType = type;
+  // Switch to drafts tab
+  document.querySelectorAll('.pipeline-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.pipeline-tab')[1].classList.add('active');
+  document.getElementById('pipeline-view').style.display = 'none';
+  document.getElementById('drafts-view').style.display = '';
+  // Switch draft type
+  document.querySelectorAll('.draft-type-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.draft-type-tab')[type==='cover'?0:type==='email'?1:2].classList.add('active');
+  document.getElementById('draft-text').value = '';
+  document.getElementById('draft-text').focus();
+  if (selectedJob) {
+    document.getElementById('draft-target').textContent = 'Drafting for: ' + selectedJob.company + ' — ' + selectedJob.position;
+    document.getElementById('btn-ai-draft').disabled = false;
+  }
+}
+
+function switchDraftType(type, btn) {
+  currentDraftType = type;
+  document.querySelectorAll('.draft-type-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderDraftHistory();
+}
+
+async function aiDraft() {
+  if (!selectedJob) { toast('Select a job first', 'error'); return; }
+  const btn = document.getElementById('btn-ai-draft');
+  btn.disabled = true;
+  btn.textContent = '🤖 Drafting...';
+
+  const prompt = currentDraftType === 'cover'
+    ? `Write a professional cover letter for Jeffrey Miller applying to ${selectedJob.company} for the ${selectedJob.position} position. Use the resume context: 25+ years field service, USAF AGE technician, precision optical systems, CompTIA A+, FPV drone engineering. No government/defense. Current employer is biotech under NDA. Be specific about why the candidate is a strong fit. Keep it under 400 words.`
+    : currentDraftType === 'email'
+    ? `Write a professional follow-up email for Jeffrey Miller regarding his application to ${selectedJob.company} for ${selectedJob.position}. He applied on ${selectedJob.date_applied || 'recently'}. Keep it concise (150 words), professional, and express continued interest.`
+    : `Write a LinkedIn direct message for Jeffrey Miller reaching out to a recruiter at ${selectedJob.company} about the ${selectedJob.position} role. Keep it conversational, under 100 words, mention his field service background and USAF veteran status.`;
+
+  try {
+    const res = await API.pehChat(prompt, { agent_id: 'outreach-drafter', velum: false });
+    if (res.ok && res.data.reply) {
+      document.getElementById('draft-text').value = res.data.reply;
+      toast('AI draft generated!', 'success');
+    } else {
+      toast('AI draft failed: ' + (res.error || res.data?.error || 'Unknown'), 'error');
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🤖 AI Draft';
+}
+
+function saveDraft() {
+  const text = document.getElementById('draft-text').value.trim();
+  if (!text) { toast('Nothing to save', 'error'); return; }
+  drafts.push({
+    id: Date.now().toString(),
+    type: currentDraftType,
+    jobId: selectedJob?.id || null,
+    company: selectedJob?.company || '',
+    position: selectedJob?.position || '',
+    text,
+    created: new Date().toISOString()
+  });
+  localStorage.setItem('toba-drafts', JSON.stringify(drafts));
+  renderDraftHistory();
+  toast('Draft saved!', 'success');
+}
+
+function renderDraftHistory() {
+  const container = document.getElementById('draft-history-list');
+  const filtered = drafts.filter(d => d.type === currentDraftType).reverse();
+  if (!filtered.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No saved drafts yet.</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(d =>
+    `<div class="draft-history-item" onclick="loadDraft('${d.id}')">
+      <div style="font-weight:600">${esc(d.company||'General')} — ${esc(d.position||'')}</div>
+      <div class="draft-preview">${esc(d.text.slice(0,80))}...</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${new Date(d.created).toLocaleDateString()}</div>
+    </div>`
+  ).join('');
+}
+
+function loadDraft(id) {
+  const d = drafts.find(d => d.id === id);
+  if (d) {
+    document.getElementById('draft-text').value = d.text;
+    toast('Draft loaded', 'success');
+  }
+}
+
+// ── Toast ───────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = 'toast', 3000);
+}
+
+// ── Keyboard Shortcuts ──────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeAddModal();
+  }
+  if (e.key === 'n' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    openAddModal();
+  }
+});
+
+// ── Init ────────────────────────────────────────────────────────────────
+loadAll();
+// Refresh every 30 seconds
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

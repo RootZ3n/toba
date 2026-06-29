@@ -3,13 +3,13 @@
   "version": "5.0.0",
   "description": "Toba — Career Transformation Platform (standalone). Self-contained Fastify + SQLite service with native provider/model selection.",
   "type": "module",
-  "author": "Jeffrey Miller",
+  "author": "RootZ3n <rootz3n@proton.me>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nousresearch/toba.git"
+    "url": "https://github.com/RootZ3n/toba.git"
   },
-  "homepage": "https://github.com/nousresearch/toba#readme",
+  "homepage": "https://github.com/RootZ3n/toba#readme",
   "keywords": [
     "career",
     "transformation",
@@ -34,7 +34,7 @@
     "verify:tailscale": "bash scripts/verify-tailscale-ready.sh"
   },
   "dependencies": {
-    "velum-ai": "file:../velum",
+    "velum-ai": "^0.2.2",
     "@fastify/cors": "^9.0.1",
     "better-sqlite3": "^9.4.3",
     "fastify": "^4.28.0"
