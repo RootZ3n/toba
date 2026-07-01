@@ -71,12 +71,12 @@ const SCENE_REGISTRY={
      desc:'The main shelter. Every path radiates outward from here — step through and choose your direction.', peh:'campfire',
      pehSlot:{x:50, y:45, anchor:'center', variant:'elder'}, hotspots:[
       {id:'ce-overview',  label:'Career Overview',    x:50, y:38, workspace:'career-overview',  greeting:"Welcome to the Cave Entrance — the heart of the settlement. Every career starts with a single decision."},
-      {id:'ce-paintings', label:'Cave Paintings',     x:18, y:28, scene:'cave-paintings',       greeting:"The Cave Paintings — where the old stories live. Plans drawn on stone, visions of what's ahead."},
-      {id:'ce-hunting',   label:'Hunting Grounds',    x:82, y:28, scene:'hunting-grounds',      greeting:"The Hunting Grounds — training, tracking, testing yourself against the wild."},
-      {id:'ce-campfire',  label:'Campfire Circle',    x:50, y:55, scene:'campfire-circle',      greeting:"The Campfire Circle — where everyone gathers. Stories, bonds, connections forged in warmth."},
-      {id:'ce-gathering', label:'Gathering Place',    x:18, y:72, scene:'gathering-place',      greeting:"The Gathering Place — forage, craft, and build what you need for the journey."},
-      {id:'ce-firepit',   label:'Fire Pit',          x:50, y:75, scene:'fire-pit',             greeting:"The Fire Pit — where raw becomes cooked, rough becomes refined. Transformation by fire."},
-      {id:'ce-stonetable', label:'Stone Table',       x:82, y:72, scene:'stone-table',          greeting:"The Stone Table — where council gathers, decisions are made, and milestones are marked."}
+      {id:'ce-paintings', label:'Cave Paintings',     x:18, y:28, workspace:'career-planning', greeting:"The Cave Paintings — where the old stories live. Plans drawn on stone, visions of what's ahead."},
+      {id:'ce-hunting',   label:'Hunting Grounds',    x:82, y:28, workspace:'career-paths',     greeting:"The Hunting Grounds — training, tracking, testing yourself against the wild."},
+      {id:'ce-campfire',  label:'Campfire Circle',    x:50, y:55, workspace:'connections',      greeting:"The Campfire Circle — where everyone gathers. Stories, bonds, connections forged in warmth."},
+      {id:'ce-gathering', label:'Gathering Place',    x:18, y:72, workspace:'skill-building',   greeting:"The Gathering Place — forage, craft, and build what you need for the journey."},
+      {id:'ce-firepit',   label:'Fire Pit',          x:50, y:75, workspace:'fire-processing',  greeting:"The Fire Pit — where raw becomes cooked, rough becomes refined. Transformation by fire."},
+      {id:'ce-stonetable', label:'Stone Table',       x:82, y:72, workspace:'milestones',       greeting:"The Stone Table — where council gathers, decisions are made, and milestones are marked."}
    ]},
     {id:'cave-paintings', title:'Cave Paintings', purpose:'Vision & career planning', route:'/cave-paintings',
      desc:'Stories painted on stone. The old ways mapped out — where you\'ve been, where you\'re going.', peh:'sage',
@@ -385,21 +385,16 @@ function pehHotspotActivate(sceneId,hotspotId){
   const scene=pehScene(pehActiveProductId(),sceneId);
   const hotspot=scene&&scene.hotspots?scene.hotspots.find((h)=>h.id===hotspotId):null;
   if(!hotspot)return;
-  // Peh greets at the hotspot FIRST, then — after a short beat — the workspace
-  // pops up as a movable window beside the pin (or we travel to a sub-scene).
+  // Peh greets at the hotspot and the workspace opens AS A MOVABLE WINDOW pinned
+  // beside the pin — the map STAYS PUT (the luak model). The other hotspots never
+  // disappear; we do NOT travel to a sub-scene. Pure scene hotspots still travel.
   pehSayGreeting(hotspot,scene);
-  setTimeout(()=>{
-    if(hotspot.workspace){
-      if(hotspot.scene&&pehScene(pehActiveProductId(),hotspot.scene)){
-        state.pehverse.scene=hotspot.scene;state.pehverse.pehPosition=null;
-        try{localStorage.setItem('pehverse-scene',hotspot.scene)}catch(e){}
-      }
-      state.pehverse.pehPopUp={x:hotspot.x,y:hotspot.y};
-      pehOpenWorkspaceAt(hotspot.workspace,hotspot.x,hotspot.y);
-    }else if(hotspot.scene){
-      pehSetScene(hotspot.scene);
-    }
-  },300);
+  if(hotspot.workspace){
+    state.pehverse.pehPopUp={x:hotspot.x,y:hotspot.y};
+    pehOpenWorkspaceAt(hotspot.workspace,hotspot.x,hotspot.y);
+  }else if(hotspot.scene){
+    pehSetScene(hotspot.scene);
+  }
 }
 function pehFocusWorkspace(uid,skipRender){
   const ws=state.pehverse.workspaces.find((w)=>w.uid===uid);
@@ -563,13 +558,10 @@ function renderPehMap(product,scene,deckMarkup){
       <h1 class="peh-scene-title">${esc(scene?scene.title:product.displayName)}</h1>
       <p class="peh-scene-desc">${esc(scene?scene.desc:product.blurb)}</p>
     </div>
-    ${renderPehSlot(scene)}
-    ${renderPehBubble()}
-    ${renderPehGuide(product)}
     ${renderHotspotLayer(scene)}
-    ${renderPehWaypoints(product,scene)}
     ${renderWorkspaceWindows(deckMarkup)}
     ${renderPehPopUp()}
+    ${renderPehBubble()}
   </div>`;
 }
 
