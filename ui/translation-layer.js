@@ -90,8 +90,8 @@
     scope.querySelectorAll('.settle-map button, .settle-hotspots button, [class*="hotspot"] button').forEach(function (el) {
       if (findHint(el.textContent.trim())) attachHint(el);
     });
-    // Overview cards (the main gate area)
-    scope.querySelectorAll('.settle-overview button, .settle-console button, .peh-panel-title').forEach(function (el) {
+    // Overview cards (the main gate area) + workspace-window / Voltron-tile titles
+    scope.querySelectorAll('.settle-overview button, .settle-console button, .peh-panel-title, .peh-ws-title, .peh-dash-tile-title').forEach(function (el) {
       if (findHint(el.textContent.trim())) attachHint(el);
     });
     // Stat labels

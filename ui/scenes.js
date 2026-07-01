@@ -115,9 +115,12 @@
   };
 
   // ── DOM enrichment ─────────────────────────────────────────────────────
+  // The modern shell renders each panel as a floating window (.peh-ws-window,
+  // title in .peh-ws-title) or a Voltron dashboard tile (.peh-dash-tile, title
+  // in .peh-dash-tile-title). We still match the loader by the panel's title.
   function enrichPlaceholder(ph) {
-    const panel = ph.closest('.peh-panel, .peh-tile');
-    const title = panel && panel.querySelector('.peh-panel-title');
+    const panel = ph.closest('.peh-ws-window, .peh-dash-tile, .peh-panel, .peh-tile');
+    const title = panel && panel.querySelector('.peh-ws-title, .peh-dash-tile-title, .peh-panel-title');
     const loader = title && BY_TITLE[title.textContent.trim()];
     if (!loader) return;
     ph.setAttribute('data-toba-live', 'loading');
